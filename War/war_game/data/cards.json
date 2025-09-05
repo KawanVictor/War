@@ -1,0 +1,13 @@
+[
+  {"id":"c1","territory":"Alaska","icon":"infantry"},
+  {"id":"c2","territory":"Alberta","icon":"cavalry"},
+  {"id":"c3","territory":"Ontario","icon":"artillery"},
+  {"id":"c4","territory":"Brazil","icon":"infantry"},
+  {"id":"c5","territory":"Ukraine","icon":"cavalry"},
+  {"id":"c6","territory":"Egypt","icon":"artillery"},
+  {"id":"c7","territory":"China","icon":"infantry"},
+  {"id":"c8","territory":"India","icon":"cavalry"},
+  {"id":"c9","territory":"Western Europe","icon":"artillery"},
+  {"id":"c10","territory":null,"icon":"wild"},
+  {"id":"c11","territory":null,"icon":"wild"}
+]

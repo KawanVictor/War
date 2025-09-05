@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>War Web (Python)</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+</head>
+<body>
+  <div class="bar">
+    <input id="roomId" placeholder="Sala" value="sala1" />
+    <button onclick="joinRoom()" id="btnJoin">Entrar</button>
+    <button onclick="startTurn()" id="btnStartTurn" disabled>Iniciar turno</button>
+    <button onclick="endTurn()" id="btnEndTurn" disabled>Encerrar turno</button>
+  </div>
+
+  <div id="status">
+    <div>Jogador Atual: <strong><span id="currentPlayer">-</span></strong></div>
+    <div>Reforços disponíveis: <strong><span id="reinforcements">0</span></strong></div>
+    <div>Fase do Turno: <strong><span id="phase">Esperando</span></strong></div>
+  </div>
+
+  <div id="map"></div>
+
+  <pre id="log"></pre>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    window.onload = () => {
+      const sock = io();
+
+      let gameState = null;
+      let currentPlayerIndex = null;
+      let myPlayerIndex = null;
+      let reinforcements = 0;
+      let phase = "waiting";
+      let selectedTerritory = null;
+
+      const logElement = document.getElementById("log");
+      const currentPlayerElem = document.getElementById("currentPlayer");
+      const reinforcementsElem = document.getElementById("reinforcements");
+      const phaseElem = document.getElementById("phase");
+      const btnStartTurn = document.getElementById("btnStartTurn");
+      const btnEndTurn = document.getElementById("btnEndTurn");
+      const btnJoin = document.getElementById("btnJoin");
+      const mapElem = document.getElementById("map");
+      const roomInput = document.getElementById("roomId");
+
+      function log(msg) {
+        logElement.textContent += msg + "\n";
+        logElement.scrollTop = logElement.scrollHeight;
+      }
+
+      function joinRoom() {
+        const roomId = roomInput.value.trim() || "default";
+        sock.emit("join", { roomId, numPlayers: 3 });
+        phase = "waiting";
+        reinforcements = 0;
+        selectedTerritory = null;
+        log(`Entrando na sala "${roomId}"...`);
+        btnStartTurn.disabled = true;
+        btnEndTurn.disabled = true;
+        reinforcementsElem.textContent = reinforcements;
+        phaseElem.textContent = "Esperando";
+      }
+
+      function startTurn() {
+        if (myPlayerIndex !== currentPlayerIndex) {
+          log("Não é seu turno para iniciar.");
+          return;
+        }
+        const roomId = roomInput.value.trim() || "default";
+        sock.emit("start_turn", { roomId });
+      }
+
+      function endTurn() {
+        if (myPlayerIndex !== currentPlayerIndex) {
+          log("Não é seu turno para encerrar.");
+          return;
+        }
+        const roomId = roomInput.value.trim() || "default";
+        sock.emit("end_turn", { roomId });
+      }
+
+      function renderMap(state) {
+        mapElem.innerHTML = "";
+        const colors = ["#d62828", "#003049", "#f77f00", "#fcbf49", "#eae2b7", "#6a994e"];
+        Object.values(state.territories).forEach(t => {
+          const div = document.createElement("div");
+          div.classList.add("territory");
+          div.textContent = t.name;
+          div.title = `Continente: ${t.continent}\nVizinho(s): ${t.neighbors.join(", ")}`;
+          if (t.ownerId !== null) {
+            div.style.backgroundColor = colors[t.ownerId % colors.length];
+          }
+          if (t.ownerId === myPlayerIndex) {
+            div.classList.add("own");
+          }
+          const troops = document.createElement("div");
+          troops.classList.add("troops");
+          troops.textContent = t.armies;
+          div.appendChild(troops);
+
+          div.onclick = () => onTerritoryClick(t);
+          mapElem.appendChild(div);
+        });
+      }
+
+      function onTerritoryClick(t) {
+        if (phase === "placing") {
+          if (t.ownerId !== myPlayerIndex) {
+            log("Só pode colocar tropas em territórios que você controla.");
+            return;
+          }
+          if (reinforcements <= 0) {
+            log("Não há reforços disponíveis para colocar.");
+            return;
+          }
+          sock.emit("place", { roomId: roomInput.value, placements: { [t.name]: 1 } });
+          reinforcements--;
+          reinforcementsElem.textContent = reinforcements;
+          log(`Colocado 1 tropa em ${t.name}. Reforços restantes: ${reinforcements}`);
+          if (reinforcements === 0) {
+            phase = "attacking";
+            phaseElem.textContent = "Ataque";
+            btnStartTurn.disabled = true;
+            btnEndTurn.disabled = false;
+            log("Hora de atacar ou encerrar o turno.");
+          }
+        } else if (phase === "attacking") {
+          if (!selectedTerritory) {
+            if (t.ownerId !== myPlayerIndex || gameState.territories[t.name].armies <= 1) {
+              log("Selecione um território seu com pelo menos 2 tropas para atacar.");
+              return;
+            }
+            selectedTerritory = t.name;
+            log(`Território atacante selecionado: ${t.name}`);
+          } else {
+            if (t.ownerId === myPlayerIndex) {
+              log("Ataque deve ser para território inimigo.");
+              selectedTerritory = null;
+              return;
+            }
+            const attackDice = Math.min(3, gameState.territories[selectedTerritory].armies - 1);
+            sock.emit("attack", { roomId: roomInput.value, from: selectedTerritory, to: t.name, dice: attackDice });
+            log(`Atacando de ${selectedTerritory} para ${t.name} com ${attackDice} dados.`);
+            selectedTerritory = null;
+          }
+        } else {
+          log("Espere o seu turno.");
+        }
+      }
+
+      sock.on("connect", () => {
+        log("Conectado ao servidor.");
+      });
+
+      sock.on("joined", data => {
+        myPlayerIndex = data.playerIndex;
+        log(`Você é o Jogador ${myPlayerIndex + 1}`);
+      });
+
+      sock.on("message", m => log(m.text || JSON.stringify(m)));
+
+      sock.on("state", s => {
+        gameState = s;
+        currentPlayerIndex = s.currentPlayerIndex;
+        currentPlayerElem.textContent = `Jogador ${currentPlayerIndex + 1}`;
+
+        if (phase === "waiting") {
+          btnStartTurn.disabled = !(myPlayerIndex === currentPlayerIndex);
+          btnEndTurn.disabled = true;
+          phaseElem.textContent = "Esperando";
+          reinforcementsElem.textContent = "0";
+        } else if (phase === "placing") {
+          btnStartTurn.disabled = true;
+          btnEndTurn.disabled = true;
+          phaseElem.textContent = "Posicionando tropas";
+          reinforcementsElem.textContent = reinforcements;
+        } else if (phase === "attacking") {
+          btnStartTurn.disabled = true;
+          btnEndTurn.disabled = !(myPlayerIndex === currentPlayerIndex);
+          phaseElem.textContent = "Ataque";
+          reinforcementsElem.textContent = "0";
+        }
+
+        renderMap(s);
+      });
+
+      sock.on("turn_started", p => {
+        reinforcements = p.reinforcements;
+        phase = "placing";
+        log(`Turno iniciado. Reforços disponíveis: ${reinforcements}`);
+        btnStartTurn.disabled = true;
+        btnEndTurn.disabled = true;
+        phaseElem.textContent = "Posicionando tropas";
+        reinforcementsElem.textContent = reinforcements;
+        renderMap(p.state);
+      });
+
+      sock.on("attack_result", r => {
+        log("Resultado do ataque: " + JSON.stringify(r.result));
+        renderMap(r.state);
+      });
+
+      // Entra automaticamente na sala
+      joinRoom();
+    };
+  </script>
+</body>
+</html>

@@ -1,0 +1,8 @@
+[
+  {"name":"North America","bonus":5},
+  {"name":"Europe","bonus":5},
+  {"name":"Asia","bonus":7},
+  {"name":"South America","bonus":2},
+  {"name":"Africa","bonus":3},
+  {"name":"Australia","bonus":2}
+]
