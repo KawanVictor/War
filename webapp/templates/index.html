@@ -15,6 +15,8 @@
   </div>
 
   <div id="status">
+    <div>Você: <strong><span id="me">-</span></strong></div>
+    <div>Sua missão: <strong><span id="mission">-</span></strong></div>
     <div>Jogador Atual: <strong><span id="currentPlayer">-</span></strong></div>
     <div>Reforços disponíveis: <strong><span id="reinforcements">0</span></strong></div>
     <div>Fase do Turno: <strong><span id="phase">Esperando</span></strong></div>
@@ -29,6 +31,16 @@
     window.onload = () => {
       const sock = io();
 
+      // Cores dos jogadores, pela cor definida no servidor
+      const COLORS = {
+        red:    { bg: "#d62828", fg: "white", label: "vermelho" },
+        blue:   { bg: "#1d4e89", fg: "white", label: "azul" },
+        green:  { bg: "#3a7d44", fg: "white", label: "verde" },
+        yellow: { bg: "#fcbf49", fg: "#222",  label: "amarelo" },
+        purple: { bg: "#7b2cbf", fg: "white", label: "roxo" },
+        black:  { bg: "#1b1b1b", fg: "white", label: "preto" },
+      };
+
       let gameState = null;
       let currentPlayerIndex = null;
       let myPlayerIndex = null;
@@ -37,6 +49,8 @@
       let selectedTerritory = null;
 
       const logElement = document.getElementById("log");
+      const meElem = document.getElementById("me");
+      const missionElem = document.getElementById("mission");
       const currentPlayerElem = document.getElementById("currentPlayer");
       const reinforcementsElem = document.getElementById("reinforcements");
       const phaseElem = document.getElementById("phase");
@@ -59,33 +73,53 @@
         return myPlayerIndex !== null && myPlayerIndex === currentPlayerIndex;
       }
 
-      // Guarda o estado recebido do servidor e redesenha o mapa
+      function playerLabel(index) {
+        const p = gameState && gameState.players[index];
+        const color = p && COLORS[p.color];
+        return `Jogador ${index + 1}` + (color ? ` (${color.label})` : "");
+      }
+
+      // Guarda o estado recebido do servidor e redesenha o mapa.
+      // A fase e os reforços vêm do servidor; fora do próprio turno o jogador só espera.
       function applyState(s) {
-        // Fora do próprio turno (ou quando o turno muda de jogador) a fase volta para espera
-        if (s.currentPlayerIndex !== currentPlayerIndex || s.currentPlayerIndex !== myPlayerIndex) {
-          phase = "waiting";
-          reinforcements = 0;
-          selectedTerritory = null;
-        }
+        const finishedBefore = gameState !== null && gameState.winnerId !== null;
         gameState = s;
         currentPlayerIndex = s.currentPlayerIndex;
-        currentPlayerElem.textContent = `Jogador ${currentPlayerIndex + 1}`;
+        if (s.winnerId !== null) {
+          phase = "finished";
+          reinforcements = 0;
+        } else if (isMyTurn()) {
+          phase = s.phase;
+          reinforcements = s.reinforcementsLeft;
+        } else {
+          phase = "waiting";
+          reinforcements = 0;
+        }
+        if (phase !== "attacking") {
+          selectedTerritory = null;
+        }
+        if (myPlayerIndex !== null) {
+          const me = s.players[myPlayerIndex];
+          meElem.textContent = playerLabel(myPlayerIndex) + (me.alive ? "" : " - eliminado");
+        }
+        currentPlayerElem.textContent = playerLabel(currentPlayerIndex);
+        if (s.winnerId !== null && !finishedBefore) {
+          log(`Fim de jogo! ${playerLabel(s.winnerId)} venceu a partida.`);
+        }
         updateControls();
         renderMap(s);
       }
 
       function updateControls() {
-        if (phase === "placing") {
-          btnStartTurn.disabled = true;
-          btnEndTurn.disabled = true;
+        btnStartTurn.disabled = !(phase === "waiting" && isMyTurn());
+        btnEndTurn.disabled = phase !== "attacking";
+        if (phase === "finished") {
+          phaseElem.textContent = `Fim de jogo - ${playerLabel(gameState.winnerId)} venceu`;
+        } else if (phase === "placing") {
           phaseElem.textContent = "Posicionando tropas";
         } else if (phase === "attacking") {
-          btnStartTurn.disabled = true;
-          btnEndTurn.disabled = !isMyTurn();
           phaseElem.textContent = "Ataque";
         } else {
-          btnStartTurn.disabled = !isMyTurn();
-          btnEndTurn.disabled = true;
           phaseElem.textContent = "Esperando";
         }
         reinforcementsElem.textContent = reinforcements;
@@ -93,43 +127,34 @@
 
       function joinRoom() {
         const roomId = currentRoomId();
+        gameState = null;
+        myPlayerIndex = null;
+        meElem.textContent = "-";
+        missionElem.textContent = "-";
         sock.emit("join", { roomId, numPlayers: 3 });
-        phase = "waiting";
-        reinforcements = 0;
-        selectedTerritory = null;
         log(`Entrando na sala "${roomId}"...`);
-        btnStartTurn.disabled = true;
-        btnEndTurn.disabled = true;
-        reinforcementsElem.textContent = reinforcements;
-        phaseElem.textContent = "Esperando";
       }
 
       function startTurn() {
-        if (myPlayerIndex !== currentPlayerIndex) {
-          log("Não é seu turno para iniciar.");
-          return;
-        }
         sock.emit("start_turn", { roomId: currentRoomId() });
       }
 
       function endTurn() {
-        if (myPlayerIndex !== currentPlayerIndex) {
-          log("Não é seu turno para encerrar.");
-          return;
-        }
         sock.emit("end_turn", { roomId: currentRoomId() });
       }
 
       function renderMap(state) {
         mapElem.innerHTML = "";
-        const colors = ["#d62828", "#003049", "#f77f00", "#fcbf49", "#eae2b7", "#6a994e"];
         Object.values(state.territories).forEach(t => {
           const div = document.createElement("div");
           div.classList.add("territory");
           div.textContent = t.name;
           div.title = `Continente: ${t.continent}\nVizinho(s): ${t.neighbors.join(", ")}`;
-          if (t.ownerId !== null) {
-            div.style.backgroundColor = colors[t.ownerId % colors.length];
+          const owner = t.ownerId !== null ? state.players[t.ownerId] : null;
+          const color = owner && COLORS[owner.color];
+          if (color) {
+            div.style.backgroundColor = color.bg;
+            div.style.color = color.fg;
           }
           if (t.ownerId === myPlayerIndex) {
             div.classList.add("own");
@@ -150,24 +175,11 @@
             log("Só pode colocar tropas em territórios que você controla.");
             return;
           }
-          if (reinforcements <= 0) {
-            log("Não há reforços disponíveis para colocar.");
-            return;
-          }
+          // O servidor desconta o reforço e devolve o estado atualizado
           sock.emit("place", { roomId: currentRoomId(), placements: { [t.name]: 1 } });
-          reinforcements--;
-          reinforcementsElem.textContent = reinforcements;
-          log(`Colocado 1 tropa em ${t.name}. Reforços restantes: ${reinforcements}`);
-          if (reinforcements === 0) {
-            phase = "attacking";
-            phaseElem.textContent = "Ataque";
-            btnStartTurn.disabled = true;
-            btnEndTurn.disabled = false;
-            log("Hora de atacar ou encerrar o turno.");
-          }
         } else if (phase === "attacking") {
           if (!selectedTerritory) {
-            if (t.ownerId !== myPlayerIndex || gameState.territories[t.name].armies <= 1) {
+            if (t.ownerId !== myPlayerIndex || t.armies <= 1) {
               log("Selecione um território seu com pelo menos 2 tropas para atacar.");
               return;
             }
@@ -184,18 +196,30 @@
             log(`Atacando de ${selectedTerritory} para ${t.name} com ${attackDice} dados.`);
             selectedTerritory = null;
           }
+        } else if (phase === "finished") {
+          log("A partida já terminou.");
         } else {
-          log("Espere o seu turno.");
+          log(isMyTurn() ? "Clique em Iniciar turno." : "Espere o seu turno.");
         }
       }
 
       sock.on("connect", () => {
         log("Conectado ao servidor.");
+        // Entra (ou volta a entrar, após uma reconexão) na sala
+        joinRoom();
       });
 
       sock.on("joined", data => {
         myPlayerIndex = data.playerIndex;
-        log(`Você é o Jogador ${myPlayerIndex + 1}`);
+        if (myPlayerIndex === null) {
+          meElem.textContent = "Espectador";
+        } else {
+          log(`Você é o Jogador ${myPlayerIndex + 1}`);
+        }
+      });
+
+      sock.on("mission", m => {
+        missionElem.textContent = m.description;
       });
 
       sock.on("message", m => log(m.text || JSON.stringify(m)));
@@ -203,29 +227,25 @@
       sock.on("state", applyState);
 
       sock.on("turn_started", p => {
-        // O evento vai para a sala toda; só o jogador da vez entra na fase de posicionamento
-        if (p.state.currentPlayerIndex === myPlayerIndex) {
-          currentPlayerIndex = p.state.currentPlayerIndex;
-          reinforcements = p.reinforcements;
-          phase = "placing";
-          log(`Turno iniciado. Reforços disponíveis: ${reinforcements}`);
-        } else {
-          log(`Jogador ${p.state.currentPlayerIndex + 1} iniciou o turno.`);
-        }
         applyState(p.state);
+        if (isMyTurn()) {
+          log(`Turno iniciado. Reforços disponíveis: ${p.reinforcements}`);
+        } else {
+          log(`${playerLabel(p.state.currentPlayerIndex)} iniciou o turno.`);
+        }
       });
 
       sock.on("attack_result", r => {
         log("Resultado do ataque: " + JSON.stringify(r.result));
         applyState(r.state);
+        if (r.result.eliminated !== null && r.result.eliminated !== undefined) {
+          log(`${playerLabel(r.result.eliminated)} foi eliminado.`);
+        }
       });
 
       btnJoin.addEventListener("click", joinRoom);
       btnStartTurn.addEventListener("click", startTurn);
       btnEndTurn.addEventListener("click", endTurn);
-
-      // Entra automaticamente na sala
-      joinRoom();
     };
   </script>
 </body>

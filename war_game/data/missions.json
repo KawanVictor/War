@@ -1,0 +1,16 @@
+[
+  {"description":"Conquistar a Europa, a Oceania e mais um continente à sua escolha","continents":["Europe","Australia"],"extra_continents":1},
+  {"description":"Conquistar a Europa, a América do Sul e mais um continente à sua escolha","continents":["Europe","South America"],"extra_continents":1},
+  {"description":"Conquistar a Ásia e a América do Sul","continents":["Asia","South America"]},
+  {"description":"Conquistar a Ásia e a África","continents":["Asia","Africa"]},
+  {"description":"Conquistar a América do Norte e a África","continents":["North America","Africa"]},
+  {"description":"Conquistar a América do Norte e a Oceania","continents":["North America","Australia"]},
+  {"description":"Conquistar 24 territórios","territories_required":24},
+  {"description":"Conquistar 18 territórios com pelo menos 2 exércitos em cada","territories_required":18,"min_armies":2},
+  {"description":"Destruir os exércitos vermelhos (se forem os seus ou outro jogador os destruir, conquistar 24 territórios)","target_color":"red"},
+  {"description":"Destruir os exércitos azuis (se forem os seus ou outro jogador os destruir, conquistar 24 territórios)","target_color":"blue"},
+  {"description":"Destruir os exércitos verdes (se forem os seus ou outro jogador os destruir, conquistar 24 territórios)","target_color":"green"},
+  {"description":"Destruir os exércitos amarelos (se forem os seus ou outro jogador os destruir, conquistar 24 territórios)","target_color":"yellow"},
+  {"description":"Destruir os exércitos roxos (se forem os seus ou outro jogador os destruir, conquistar 24 territórios)","target_color":"purple"},
+  {"description":"Destruir os exércitos pretos (se forem os seus ou outro jogador os destruir, conquistar 24 territórios)","target_color":"black"}
+]

@@ -13,6 +13,9 @@ class GameState:
     missions: Optional[Dict[int, Mission]] = None
     current_player_index: int = 0
     conquered_this_turn: bool = False
+    phase: str = "waiting"  # 'waiting' | 'placing' | 'attacking'
+    reinforcements_left: int = 0
+    winner_id: Optional[int] = None
 
     def current_player(self) -> Player:
         return self.players[self.current_player_index]

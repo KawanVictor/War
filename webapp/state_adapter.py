@@ -18,9 +18,13 @@ def player_to_dict(p):
     }
 
 def state_to_dict(state):
+    # As missões são secretas e não entram aqui; cada jogador recebe a sua em separado
     return {
         "territories": {k: territory_to_dict(v) for k, v in state.territories.items()},
         "players": [player_to_dict(p) for p in state.players],
         "currentPlayerIndex": state.current_player_index,
-        "deckCount": len(state.deck)
+        "deckCount": len(state.deck),
+        "phase": state.phase,
+        "reinforcementsLeft": state.reinforcements_left,
+        "winnerId": state.winner_id
     }

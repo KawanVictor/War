@@ -1,5 +1,5 @@
 from flask import request
-from flask_socketio import join_room, leave_room, emit
+from flask_socketio import join_room, emit
 from war_game.rules.errors import RuleError
 from webapp.rooms import rooms
 from webapp.state_adapter import state_to_dict
@@ -8,94 +8,114 @@ from webapp.state_adapter import state_to_dict
 room_players = {}
 
 def register_socket_handlers(socketio):
+    def reply(text):
+        emit("message", {"text": text}, room=request.sid)
+
+    def current_room(data, action):
+        """Devolve (room_id, room) se quem enviou o evento é o jogador da vez; senão avisa e devolve None."""
+        room_id = data.get("roomId") if isinstance(data, dict) else None
+        room = rooms.get(room_id) if isinstance(room_id, str) else None
+        if room is None:
+            reply("Sala inexistente. Entre em uma sala primeiro.")
+            return None
+        player_index = room_players.get(room_id, {}).get(request.sid)
+        if player_index is None or player_index != room.state.current_player_index:
+            reply(f"Não é seu turno para {action}.")
+            return None
+        return room_id, room
+
     @socketio.on("join")
     def on_join(data):
+        if not isinstance(data, dict):
+            data = {}
         room_id = data.get("roomId", "default")
-        num_players = int(data.get("numPlayers", 3))
-
-        room = rooms.get_or_create(room_id, num_players)
+        if not isinstance(room_id, str) or not room_id:
+            reply("Nome de sala inválido.")
+            return
+        try:
+            room = rooms.get_or_create(room_id, data.get("numPlayers", 3))
+        except RuleError as e:
+            reply(str(e))
+            return
         join_room(room_id)
 
-        if room_id not in room_players:
-            room_players[room_id] = {}
-
+        seats = room_players.setdefault(room_id, {})
         # Se o sid já está no mapa, retorna o índice
-        if request.sid in room_players[room_id]:
-            player_index = room_players[room_id][request.sid]
+        if request.sid in seats:
+            player_index = seats[request.sid]
         else:
-            # Atribui índice disponível (primeiro que não foi atribuído)
-            assigned = set(room_players[room_id].values())
-            available = set(range(num_players)) - assigned
-            player_index = min(available) if available else 0
-            room_players[room_id][request.sid] = player_index
+            # Atribui o primeiro assento livre; com a sala cheia, entra como espectador
+            available = set(range(len(room.state.players))) - set(seats.values())
+            player_index = min(available) if available else None
+            if player_index is not None:
+                seats[request.sid] = player_index
 
         emit("joined", {"playerIndex": player_index}, room=request.sid)
         emit("state", state_to_dict(room.state), room=request.sid)
+        if player_index is None:
+            reply(f"A sala {room_id} está cheia; você entrou como espectador.")
+            return
+        emit("mission", {"description": room.state.missions[player_index].description}, room=request.sid)
         emit("message", {"text": f"Entrou na sala {room_id} como Jogador {player_index + 1}."}, to=room_id)
 
     @socketio.on("start_turn")
     def on_start_turn(data):
-        room_id = data.get("roomId")
-        room = rooms.get_or_create(room_id)
-        # Apenas o jogador da vez pode iniciar o turno
-        player_index = room_players.get(room_id, {}).get(request.sid)
-        if player_index != room.state.current_player_index:
-            emit("message", {"text": "Não é seu turno para iniciar."}, room=request.sid)
+        found = current_room(data, "iniciar")
+        if not found:
             return
-
-        reinf = room.tm.start_turn()
+        room_id, room = found
+        try:
+            reinf = room.tm.start_turn()
+        except RuleError as e:
+            reply(str(e))
+            return
         emit("turn_started", {"reinforcements": reinf, "state": state_to_dict(room.state)}, room=room_id)
 
     @socketio.on("place")
     def on_place(data):
-        room_id = data.get("roomId")
-        room = rooms.get_or_create(room_id)
-        player_index = room_players.get(room_id, {}).get(request.sid)
-        if player_index != room.state.current_player_index:
-            emit("message", {"text": "Não é seu turno para colocar tropas."}, room=request.sid)
+        found = current_room(data, "colocar tropas")
+        if not found:
             return
-
+        room_id, room = found
         placements = data.get("placements", {})
         try:
             if not isinstance(placements, dict):
                 raise RuleError("Posicionamento inválido.")
             room.tm.place_reinforcements(placements)
         except RuleError as e:
-            emit("message", {"text": str(e)}, room=request.sid)
+            reply(str(e))
             return
         emit("state", state_to_dict(room.state), room=room_id)
 
     @socketio.on("attack")
     def on_attack(data):
-        room_id = data.get("roomId")
-        room = rooms.get_or_create(room_id)
-        player_index = room_players.get(room_id, {}).get(request.sid)
-        if player_index != room.state.current_player_index:
-            emit("message", {"text": "Não é seu turno para atacar."}, room=request.sid)
+        found = current_room(data, "atacar")
+        if not found:
             return
-
+        room_id, room = found
         from_t = data.get("from")
         to_t = data.get("to")
         try:
             dice = data.get("dice", 3)
-            if type(dice) is not int:
-                raise RuleError("Quantidade de dados inválida.")
+            if type(dice) is not int or not isinstance(from_t, str) or not isinstance(to_t, str):
+                raise RuleError("Ataque inválido.")
             res = room.tm.do_attack(from_t, to_t, dice)
         except RuleError as e:
-            emit("message", {"text": str(e)}, room=request.sid)
+            reply(str(e))
             return
         emit("attack_result", {"result": res, "state": state_to_dict(room.state)}, room=room_id)
 
     @socketio.on("end_turn")
     def on_end_turn(data):
-        room_id = data.get("roomId")
-        room = rooms.get_or_create(room_id)
-        player_index = room_players.get(room_id, {}).get(request.sid)
-        if player_index != room.state.current_player_index:
-            emit("message", {"text": "Não é seu turno para encerrar."}, room=request.sid)
+        found = current_room(data, "encerrar")
+        if not found:
             return
-
-        room.tm.end_turn()
+        room_id, room = found
+        try:
+            room.tm.end_turn()
+        except RuleError as e:
+            reply(str(e))
+            return
         emit("state", state_to_dict(room.state), room=room_id)
 
     @socketio.on("disconnect")

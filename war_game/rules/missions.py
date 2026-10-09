@@ -1,8 +1,14 @@
+import json
+from pathlib import Path
+from typing import List
 from war_game.models.game_state import GameState
 from war_game.models.mission import Mission
 from war_game.rules.reinforcements import has_full_continent
 
-FALLBACK_TERRITORIES = 24  # objetivo de quem recebe a missão de destruir a própria cor
+FALLBACK_TERRITORIES = 24  # objetivo quando a missão de destruir uma cor não pode ser cumprida
+
+def load_missions(data_dir: Path) -> List[Mission]:
+    return [Mission(**m) for m in json.loads((data_dir / "missions.json").read_text(encoding="utf-8"))]
 
 def is_mission_complete(state: GameState, player_id: int, mission: Mission) -> bool:
     player = state.players[player_id]
@@ -13,6 +19,9 @@ def is_mission_complete(state: GameState, player_id: int, mission: Mission) -> b
             return len(player.territories) >= FALLBACK_TERRITORIES
         if target.territories:
             return False
+        if target.eliminated_by != player_id:
+            # outro jogador destruiu o alvo
+            return len(player.territories) >= FALLBACK_TERRITORIES
 
     if mission.continents or mission.extra_continents:
         owned = {t.continent for t in state.territories.values()
