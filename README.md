@@ -37,11 +37,7 @@ pip install -r requirements.txt
 
 ## Como jogar
 
-Todos os comandos abaixo devem ser executados de dentro da pasta `War/` interna (a que contém `war_game/` e `webapp/`):
-
-```bash
-cd War
-```
+Execute os comandos abaixo na raiz do repositório.
 
 ### Versão web
 
@@ -78,7 +74,6 @@ python -m pytest
 ## Estrutura
 
 ```
-War/
 ├── war_game/
 │   ├── models/      # Territory, Player, Card, Mission, GameState
 │   ├── rules/       # combate, reforços, cartas, missões
@@ -86,13 +81,15 @@ War/
 │   ├── cli/         # jogo no terminal
 │   ├── data/        # mapa, continentes e cartas em JSON
 │   └── tests/
-└── webapp/
-    ├── app.py               # aplicação Flask e ponto de entrada
-    ├── socket_handlers.py   # eventos Socket.IO (join, start_turn, place, attack, end_turn)
-    ├── rooms.py             # salas e criação da partida
-    ├── state_adapter.py     # conversão do estado para JSON
-    ├── templates/           # página do jogo
-    └── static/
+├── webapp/
+│   ├── app.py               # aplicação Flask e ponto de entrada
+│   ├── socket_handlers.py   # eventos Socket.IO (join, start_turn, place, attack, end_turn)
+│   ├── rooms.py             # salas e criação da partida
+│   ├── state_adapter.py     # conversão do estado para JSON
+│   ├── templates/           # página do jogo
+│   └── static/
+├── requirements.txt
+└── README.md
 ```
 
 ## Regras implementadas
