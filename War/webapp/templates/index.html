@@ -9,9 +9,9 @@
 <body>
   <div class="bar">
     <input id="roomId" placeholder="Sala" value="sala1" />
-    <button onclick="joinRoom()" id="btnJoin">Entrar</button>
-    <button onclick="startTurn()" id="btnStartTurn" disabled>Iniciar turno</button>
-    <button onclick="endTurn()" id="btnEndTurn" disabled>Encerrar turno</button>
+    <button id="btnJoin">Entrar</button>
+    <button id="btnStartTurn" disabled>Iniciar turno</button>
+    <button id="btnEndTurn" disabled>Encerrar turno</button>
   </div>
 
   <div id="status">
@@ -24,7 +24,7 @@
 
   <pre id="log"></pre>
 
-  <script src="/socket.io/socket.io.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js"></script>
   <script>
     window.onload = () => {
       const sock = io();
@@ -51,8 +51,48 @@
         logElement.scrollTop = logElement.scrollHeight;
       }
 
+      function currentRoomId() {
+        return roomInput.value.trim() || "default";
+      }
+
+      function isMyTurn() {
+        return myPlayerIndex !== null && myPlayerIndex === currentPlayerIndex;
+      }
+
+      // Guarda o estado recebido do servidor e redesenha o mapa
+      function applyState(s) {
+        // Fora do próprio turno (ou quando o turno muda de jogador) a fase volta para espera
+        if (s.currentPlayerIndex !== currentPlayerIndex || s.currentPlayerIndex !== myPlayerIndex) {
+          phase = "waiting";
+          reinforcements = 0;
+          selectedTerritory = null;
+        }
+        gameState = s;
+        currentPlayerIndex = s.currentPlayerIndex;
+        currentPlayerElem.textContent = `Jogador ${currentPlayerIndex + 1}`;
+        updateControls();
+        renderMap(s);
+      }
+
+      function updateControls() {
+        if (phase === "placing") {
+          btnStartTurn.disabled = true;
+          btnEndTurn.disabled = true;
+          phaseElem.textContent = "Posicionando tropas";
+        } else if (phase === "attacking") {
+          btnStartTurn.disabled = true;
+          btnEndTurn.disabled = !isMyTurn();
+          phaseElem.textContent = "Ataque";
+        } else {
+          btnStartTurn.disabled = !isMyTurn();
+          btnEndTurn.disabled = true;
+          phaseElem.textContent = "Esperando";
+        }
+        reinforcementsElem.textContent = reinforcements;
+      }
+
       function joinRoom() {
-        const roomId = roomInput.value.trim() || "default";
+        const roomId = currentRoomId();
         sock.emit("join", { roomId, numPlayers: 3 });
         phase = "waiting";
         reinforcements = 0;
@@ -69,8 +109,7 @@
           log("Não é seu turno para iniciar.");
           return;
         }
-        const roomId = roomInput.value.trim() || "default";
-        sock.emit("start_turn", { roomId });
+        sock.emit("start_turn", { roomId: currentRoomId() });
       }
 
       function endTurn() {
@@ -78,8 +117,7 @@
           log("Não é seu turno para encerrar.");
           return;
         }
-        const roomId = roomInput.value.trim() || "default";
-        sock.emit("end_turn", { roomId });
+        sock.emit("end_turn", { roomId: currentRoomId() });
       }
 
       function renderMap(state) {
@@ -116,7 +154,7 @@
             log("Não há reforços disponíveis para colocar.");
             return;
           }
-          sock.emit("place", { roomId: roomInput.value, placements: { [t.name]: 1 } });
+          sock.emit("place", { roomId: currentRoomId(), placements: { [t.name]: 1 } });
           reinforcements--;
           reinforcementsElem.textContent = reinforcements;
           log(`Colocado 1 tropa em ${t.name}. Reforços restantes: ${reinforcements}`);
@@ -142,7 +180,7 @@
               return;
             }
             const attackDice = Math.min(3, gameState.territories[selectedTerritory].armies - 1);
-            sock.emit("attack", { roomId: roomInput.value, from: selectedTerritory, to: t.name, dice: attackDice });
+            sock.emit("attack", { roomId: currentRoomId(), from: selectedTerritory, to: t.name, dice: attackDice });
             log(`Atacando de ${selectedTerritory} para ${t.name} com ${attackDice} dados.`);
             selectedTerritory = null;
           }
@@ -162,46 +200,29 @@
 
       sock.on("message", m => log(m.text || JSON.stringify(m)));
 
-      sock.on("state", s => {
-        gameState = s;
-        currentPlayerIndex = s.currentPlayerIndex;
-        currentPlayerElem.textContent = `Jogador ${currentPlayerIndex + 1}`;
-
-        if (phase === "waiting") {
-          btnStartTurn.disabled = !(myPlayerIndex === currentPlayerIndex);
-          btnEndTurn.disabled = true;
-          phaseElem.textContent = "Esperando";
-          reinforcementsElem.textContent = "0";
-        } else if (phase === "placing") {
-          btnStartTurn.disabled = true;
-          btnEndTurn.disabled = true;
-          phaseElem.textContent = "Posicionando tropas";
-          reinforcementsElem.textContent = reinforcements;
-        } else if (phase === "attacking") {
-          btnStartTurn.disabled = true;
-          btnEndTurn.disabled = !(myPlayerIndex === currentPlayerIndex);
-          phaseElem.textContent = "Ataque";
-          reinforcementsElem.textContent = "0";
-        }
-
-        renderMap(s);
-      });
+      sock.on("state", applyState);
 
       sock.on("turn_started", p => {
-        reinforcements = p.reinforcements;
-        phase = "placing";
-        log(`Turno iniciado. Reforços disponíveis: ${reinforcements}`);
-        btnStartTurn.disabled = true;
-        btnEndTurn.disabled = true;
-        phaseElem.textContent = "Posicionando tropas";
-        reinforcementsElem.textContent = reinforcements;
-        renderMap(p.state);
+        // O evento vai para a sala toda; só o jogador da vez entra na fase de posicionamento
+        if (p.state.currentPlayerIndex === myPlayerIndex) {
+          currentPlayerIndex = p.state.currentPlayerIndex;
+          reinforcements = p.reinforcements;
+          phase = "placing";
+          log(`Turno iniciado. Reforços disponíveis: ${reinforcements}`);
+        } else {
+          log(`Jogador ${p.state.currentPlayerIndex + 1} iniciou o turno.`);
+        }
+        applyState(p.state);
       });
 
       sock.on("attack_result", r => {
         log("Resultado do ataque: " + JSON.stringify(r.result));
-        renderMap(r.state);
+        applyState(r.state);
       });
+
+      btnJoin.addEventListener("click", joinRoom);
+      btnStartTurn.addEventListener("click", startTurn);
+      btnEndTurn.addEventListener("click", endTurn);
 
       // Entra automaticamente na sala
       joinRoom();
