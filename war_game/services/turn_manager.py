@@ -3,6 +3,7 @@ from war_game.rules.reinforcements import calc_total_reinforcements
 from war_game.rules.cards import redeem_cards
 from war_game.rules.combat import attack_once, max_defend_dice
 from war_game.models.game_state import GameState
+from war_game.rules.errors import RuleError
 
 class TurnManager:
     def __init__(self, state: GameState, data_dir: Path):
@@ -16,7 +17,11 @@ class TurnManager:
 
     def place_reinforcements(self, placements: dict):
         player = self.state.current_player()
-        assert set(placements).issubset(player.territories)
+        for territory, count in placements.items():
+            if territory not in player.territories:
+                raise RuleError(f"{territory} não pertence ao jogador da vez.")
+            if type(count) is not int or count < 1:
+                raise RuleError("A quantidade de tropas deve ser um inteiro positivo.")
         for territory, count in placements.items():
             self.state.territories[territory].armies += count
 
@@ -28,6 +33,8 @@ class TurnManager:
         return 0
 
     def do_attack(self, from_t: str, to_t: str, attack_dice: int) -> dict:
+        if to_t not in self.state.territories:
+            raise RuleError("Território inexistente.")
         defend_dice = max_defend_dice(self.state.territories[to_t].armies)
         return attack_once(self.state, from_t, to_t, attack_dice, defend_dice)
 

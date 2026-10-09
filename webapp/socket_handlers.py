@@ -1,5 +1,6 @@
 from flask import request
 from flask_socketio import join_room, leave_room, emit
+from war_game.rules.errors import RuleError
 from webapp.rooms import rooms
 from webapp.state_adapter import state_to_dict
 
@@ -55,7 +56,13 @@ def register_socket_handlers(socketio):
             return
 
         placements = data.get("placements", {})
-        room.tm.place_reinforcements(placements)
+        try:
+            if not isinstance(placements, dict):
+                raise RuleError("Posicionamento inválido.")
+            room.tm.place_reinforcements(placements)
+        except RuleError as e:
+            emit("message", {"text": str(e)}, room=request.sid)
+            return
         emit("state", state_to_dict(room.state), room=room_id)
 
     @socketio.on("attack")
@@ -69,8 +76,14 @@ def register_socket_handlers(socketio):
 
         from_t = data.get("from")
         to_t = data.get("to")
-        dice = int(data.get("dice", 3))
-        res = room.tm.do_attack(from_t, to_t, dice)
+        try:
+            dice = data.get("dice", 3)
+            if type(dice) is not int:
+                raise RuleError("Quantidade de dados inválida.")
+            res = room.tm.do_attack(from_t, to_t, dice)
+        except RuleError as e:
+            emit("message", {"text": str(e)}, room=request.sid)
+            return
         emit("attack_result", {"result": res, "state": state_to_dict(room.state)}, room=room_id)
 
     @socketio.on("end_turn")

@@ -9,7 +9,8 @@ def calc_base_reinforcements(num_territories: int) -> int:
     return max(3, num_territories // 3)
 
 def has_full_continent(state: GameState, player_id: int, continent: str) -> bool:
-    return all(t.owner_id == player_id for t in state.territories.values() if t.continent == continent)
+    owners = [t.owner_id for t in state.territories.values() if t.continent == continent]
+    return bool(owners) and all(o == player_id for o in owners)
 
 def calc_total_reinforcements(state: GameState, data_dir: Path) -> int:
     player = state.current_player()

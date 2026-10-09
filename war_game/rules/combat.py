@@ -1,6 +1,7 @@
 import random
 from typing import Tuple, List
 from war_game.models.game_state import GameState
+from war_game.rules.errors import RuleError
 
 def roll_dice(num: int) -> List[int]:
     return sorted([random.randint(1, 6) for _ in range(num)], reverse=True)
@@ -22,12 +23,20 @@ def resolve_battle(attacking: List[int], defending: List[int]) -> Tuple[int, int
     return losses_attacker, losses_defender
 
 def attack_once(state: GameState, from_t: str, to_t: str, attack_dice: int, defend_dice: int):
+    if from_t not in state.territories or to_t not in state.territories:
+        raise RuleError("Território inexistente.")
     a_t = state.territories[from_t]
     d_t = state.territories[to_t]
-    assert to_t in a_t.neighbors
-    assert a_t.owner_id != d_t.owner_id
-    assert attack_dice <= max_attack_dice(a_t.armies)
-    assert defend_dice <= max_defend_dice(d_t.armies)
+    if a_t.owner_id != state.current_player().id:
+        raise RuleError(f"{from_t} não pertence ao jogador da vez.")
+    if to_t not in a_t.neighbors:
+        raise RuleError(f"{to_t} não faz fronteira com {from_t}.")
+    if a_t.owner_id == d_t.owner_id:
+        raise RuleError("Não é possível atacar um território próprio.")
+    if not 1 <= attack_dice <= max_attack_dice(a_t.armies):
+        raise RuleError(f"Quantidade de dados de ataque inválida para {a_t.armies} tropa(s).")
+    if not 1 <= defend_dice <= max_defend_dice(d_t.armies):
+        raise RuleError(f"Quantidade de dados de defesa inválida para {d_t.armies} tropa(s).")
 
     a_rolls = roll_dice(attack_dice)
     d_rolls = roll_dice(defend_dice)

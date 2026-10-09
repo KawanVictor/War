@@ -34,7 +34,7 @@
   {"name":"Yakutsk","continent":"Asia","neighbors":["Siberia","Irkutsk","Kamchatka"]},
   {"name":"Irkutsk","continent":"Asia","neighbors":["Siberia","Yakutsk","Kamchatka","Mongolia"]},
   {"name":"Kamchatka","continent":"Asia","neighbors":["Yakutsk","Irkutsk","Mongolia","Japan","Alaska"]},
-  {"name":"Japan","continent":"Asia","neighbors":["Kamchatka"]},
+  {"name":"Japan","continent":"Asia","neighbors":["Kamchatka","Mongolia"]},
   {"name":"Afghanistan","continent":"Asia","neighbors":["Ukraine","Ural","China","India","Middle East"]},
   {"name":"China","continent":"Asia","neighbors":["Ural","Siberia","Mongolia","Siam","India","Afghanistan"]},
   {"name":"Mongolia","continent":"Asia","neighbors":["Siberia","Irkutsk","Kamchatka","China","Japan"]},

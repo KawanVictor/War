@@ -67,9 +67,11 @@ Partida local de 3 jogadores no mesmo terminal. Use `Ctrl+C` para sair.
 ## Testes
 
 ```bash
-pip install pytest
+pip install -r requirements-dev.txt
 python -m pytest
 ```
+
+Os testes do motor ficam em `war_game/tests/` e os do servidor web em `webapp/tests/`.
 
 ## Estrutura
 
@@ -87,8 +89,11 @@ python -m pytest
 │   ├── rooms.py             # salas e criação da partida
 │   ├── state_adapter.py     # conversão do estado para JSON
 │   ├── templates/           # página do jogo
-│   └── static/
-├── requirements.txt
+│   ├── static/
+│   └── tests/
+├── pyproject.toml
+├── requirements.txt         # dependências com versão fixa
+├── requirements-dev.txt     # dependências + pytest
 └── README.md
 ```
 
@@ -104,6 +109,6 @@ python -m pytest
 - Não há eliminação de jogadores nem condição de vitória; a partida não termina sozinha
 - A troca de cartas existe no motor, mas não está disponível no terminal nem na web
 - Não há fase de remanejamento de tropas
-- As missões ainda não foram implementadas
-- O servidor confia no cliente: não limita a quantidade de reforços nem confere o dono do território atacante
+- A verificação de missões existe no motor (continentes, número de territórios, destruir uma cor), mas as missões ainda não são sorteadas nem encerram a partida
+- O servidor não limita a quantidade de reforços posicionados nem impede iniciar o mesmo turno mais de uma vez
 - A partida web é sempre de 3 jogadores; a partir do 4º, quem entra divide o assento do Jogador 1
