@@ -1,5 +1,9 @@
 # War (Risk) em Python
 
+[![CI](https://github.com/KawanVictor/War/actions/workflows/ci.yml/badge.svg)](https://github.com/KawanVictor/War/actions/workflows/ci.yml)
+
+![Partida em andamento na versão web](docs/screenshot.png)
+
 Implementação do jogo de tabuleiro War (inspirado em Risk), com:
 
 - Motor de regras em Python (reforços, combate, cartas, turnos)
@@ -73,7 +77,7 @@ pip install -r requirements-dev.txt
 python -m pytest
 ```
 
-Os testes do motor ficam em `war_game/tests/` e os do servidor web em `webapp/tests/`.
+Os testes do motor ficam em `war_game/tests/` e os do servidor web em `webapp/tests/`. O GitHub Actions roda a suíte a cada push e pull request, em Python 3.10, 3.12 e 3.13.
 
 ## Estrutura
 
