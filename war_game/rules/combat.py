@@ -28,9 +28,9 @@ def attack_once(state: GameState, from_t: str, to_t: str, attack_dice: int, defe
     a_t = state.territories[from_t]
     d_t = state.territories[to_t]
     if a_t.owner_id != state.current_player().id:
-        raise RuleError(f"{from_t} não pertence ao jogador da vez.")
+        raise RuleError(f"{a_t.label} não pertence ao jogador da vez.")
     if to_t not in a_t.neighbors:
-        raise RuleError(f"{to_t} não faz fronteira com {from_t}.")
+        raise RuleError(f"{d_t.label} não faz fronteira com {a_t.label}.")
     if a_t.owner_id == d_t.owner_id:
         raise RuleError("Não é possível atacar um território próprio.")
     if not 1 <= attack_dice <= max_attack_dice(a_t.armies):

@@ -11,7 +11,7 @@ Implementação do jogo de tabuleiro War (inspirado em Risk), com:
 - Servidor web em Flask usando Flask-SocketIO para partidas online em tempo real
 - Estrutura modular para testes e fácil expansão
 
-O projeto está em desenvolvimento: dá para jogar turnos completos, mas várias regras ainda faltam (veja [Limitações conhecidas](#limitações-conhecidas)).
+Dá para jogar partidas completas, do sorteio das missões à vitória. O que ainda falta está em [Limitações conhecidas](#limitações-conhecidas).
 
 ## Instalação
 
@@ -56,9 +56,13 @@ Cada jogador recebe uma missão secreta, mostrada no topo da página. Vence quem
 Em cada turno:
 
 1. Clique em **Iniciar turno** quando for a sua vez.
-2. Clique nos seus territórios para posicionar os reforços, uma tropa por clique. É preciso posicionar todos antes de atacar ou encerrar.
-3. Para atacar, clique em um território seu com pelo menos 2 tropas e depois em um território inimigo vizinho.
-4. Clique em **Encerrar turno**.
+2. Se quiser trocar cartas, selecione 3 no painel **Suas cartas** (mesmo símbolo ou três símbolos diferentes; o curinga vale por qualquer um) e clique em **Trocar**. As tropas da troca entram nos reforços do turno.
+3. Clique nos seus territórios para posicionar os reforços, uma tropa por clique. É preciso posicionar todos antes de atacar ou encerrar.
+4. Para atacar, clique em um território seu com pelo menos 2 tropas e depois em um vizinho inimigo destacado. A origem continua selecionada para atacar de novo; clique nela para soltar.
+5. Para remanejar, clique em **Remanejar tropas**, escolha um território seu e clique em um vizinho seu: cada clique move 1 tropa. Depois de começar o remanejamento não dá mais para atacar, e cada tropa só se move uma vez por turno.
+6. Clique em **Encerrar turno**.
+
+O mapa mostra cada território como um círculo na cor do dono, com o número de tropas, ligado por linhas aos territórios vizinhos. Os seus têm contorno amarelo. A linha tracejada que sai pelas bordas liga o Alasca a Kamchatka.
 
 A página carrega o cliente Socket.IO de um CDN, então o navegador precisa de acesso à internet. O servidor escuta em `0.0.0.0` e aceita conexões de qualquer origem, o que serve para testes em rede local, mas não para exposição pública.
 
@@ -68,7 +72,7 @@ A página carrega o cliente Socket.IO de um CDN, então o navegador precisa de a
 python -m war_game.cli.main
 ```
 
-Partida local de 3 jogadores no mesmo terminal, até alguém vencer. A missão de cada jogador aparece no início do turno dele. Use `Ctrl+C` para sair antes.
+Partida local de 3 jogadores no mesmo terminal, até alguém vencer. As escolhas são feitas por menus numerados. A missão e as cartas de cada jogador aparecem no início do turno dele. Use `Ctrl+C` para sair antes.
 
 ## Testes
 
@@ -95,7 +99,7 @@ Os testes do motor ficam em `war_game/tests/` e os do servidor web em `webapp/te
 │   ├── rooms.py             # salas e criação da partida
 │   ├── state_adapter.py     # conversão do estado para JSON
 │   ├── templates/           # página do jogo
-│   ├── static/
+│   ├── static/              # estilos e posições dos territórios no mapa
 │   └── tests/
 ├── pyproject.toml
 ├── requirements.txt         # dependências com versão fixa
@@ -109,14 +113,21 @@ Os testes do motor ficam em `war_game/tests/` e os do servidor web em `webapp/te
 - Reforços: um a cada 3 territórios (mínimo 3), mais o bônus de continentes completos
 - Combate com até 3 dados de ataque e 2 de defesa; empates favorecem a defesa
 - Conquista de território e carta ao fim do turno para quem conquistou; o descarte é reembaralhado quando o baralho acaba
-- Turno em fases validadas pelo motor: iniciar, posicionar todos os reforços, atacar, encerrar
+- Turno em fases validadas pelo motor: iniciar, posicionar todos os reforços, atacar, remanejar, encerrar
+- Troca de cartas por tropas (4, 6, 8, 10, 12, 15 e depois de 5 em 5), com 2 tropas extras em um território próprio que apareça nas cartas
+- Remanejamento entre territórios próprios vizinhos; cada tropa se move uma vez por turno e sempre fica pelo menos uma
 - Missões secretas sorteadas no início: conquistar continentes, conquistar um número de territórios ou destruir uma cor
 - Eliminação de jogadores (as cartas do eliminado vão para quem o eliminou) e fim de partida por missão cumprida ou último sobrevivente
 
 ## Limitações conhecidas
 
-- A troca de cartas existe no motor (soma as tropas aos reforços do turno), mas não está disponível no terminal nem na web
-- Não há fase de remanejamento de tropas
+- A troca de cartas é sempre opcional; não há troca obrigatória com 5 cartas na mão
+- O baralho tem só 11 cartas, em vez de uma por território
+- O mapa da web é esquemático (círculos e fronteiras), sem o desenho dos países; os nomes seguem o tabuleiro do Risk traduzido, não o do War brasileiro
 - Cada território começa com 1 tropa; não há a rodada inicial de distribuição de exércitos
 - A partida web é sempre de 3 jogadores (o motor aceita de 2 a 6)
 - Quem perde a conexão libera o assento; ao voltar, ocupa o primeiro assento livre, que pode não ser o mesmo
+
+## Licença
+
+Distribuído sob a licença MIT. Veja [LICENSE](LICENSE).

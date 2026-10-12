@@ -13,7 +13,7 @@ class GameState:
     missions: Optional[Dict[int, Mission]] = None
     current_player_index: int = 0
     conquered_this_turn: bool = False
-    phase: str = "waiting"  # 'waiting' | 'placing' | 'attacking'
+    phase: str = "waiting"  # 'waiting' | 'placing' | 'attacking' | 'fortifying'
     reinforcements_left: int = 0
     winner_id: Optional[int] = None
 

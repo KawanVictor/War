@@ -4,6 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>War Web (Python)</title>
+  <link rel="icon" href="data:," />
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
 </head>
 <body>
@@ -11,35 +12,65 @@
     <input id="roomId" placeholder="Sala" value="sala1" />
     <button id="btnJoin">Entrar</button>
     <button id="btnStartTurn" disabled>Iniciar turno</button>
+    <button id="btnFortify" disabled>Remanejar tropas</button>
     <button id="btnEndTurn" disabled>Encerrar turno</button>
   </div>
 
-  <div id="status">
-    <div>Você: <strong><span id="me">-</span></strong></div>
-    <div>Sua missão: <strong><span id="mission">-</span></strong></div>
-    <div>Jogador Atual: <strong><span id="currentPlayer">-</span></strong></div>
-    <div>Reforços disponíveis: <strong><span id="reinforcements">0</span></strong></div>
-    <div>Fase do Turno: <strong><span id="phase">Esperando</span></strong></div>
+  <div class="layout">
+    <div class="board">
+      <p id="hint"></p>
+      <svg id="map" role="img" aria-label="Mapa do jogo"></svg>
+    </div>
+
+    <div class="side">
+      <div class="panel" id="status">
+        <div>Você: <strong><span id="me">-</span></strong></div>
+        <div>Sua missão: <strong><span id="mission">-</span></strong></div>
+        <div>Jogador Atual: <strong><span id="currentPlayer">-</span></strong></div>
+        <div>Reforços disponíveis: <strong><span id="reinforcements">0</span></strong></div>
+        <div>Fase do Turno: <strong><span id="phase">Esperando</span></strong></div>
+      </div>
+
+      <div class="panel">
+        <h2>Jogadores</h2>
+        <div id="players"></div>
+      </div>
+
+      <div class="panel">
+        <h2>Suas cartas</h2>
+        <div id="cards"><span class="empty">Nenhuma carta.</span></div>
+        <button id="btnTrade" disabled>Trocar cartas</button>
+      </div>
+
+      <div class="panel">
+        <h2>Registro</h2>
+        <pre id="log"></pre>
+      </div>
+    </div>
   </div>
-
-  <div id="map"></div>
-
-  <pre id="log"></pre>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js"></script>
   <script>
-    window.onload = () => {
-      const sock = io();
+    window.onload = async () => {
+      const SVG_NS = "http://www.w3.org/2000/svg";
+      const LAYOUT_URL = "{{ url_for('static', filename='map_layout.json') }}";
 
       // Cores dos jogadores, pela cor definida no servidor
       const COLORS = {
         red:    { bg: "#d62828", fg: "white", label: "vermelho" },
-        blue:   { bg: "#1d4e89", fg: "white", label: "azul" },
-        green:  { bg: "#3a7d44", fg: "white", label: "verde" },
+        blue:   { bg: "#2a6fbf", fg: "white", label: "azul" },
+        green:  { bg: "#3a8f4b", fg: "white", label: "verde" },
         yellow: { bg: "#fcbf49", fg: "#222",  label: "amarelo" },
-        purple: { bg: "#7b2cbf", fg: "white", label: "roxo" },
+        purple: { bg: "#8e44d6", fg: "white", label: "roxo" },
         black:  { bg: "#1b1b1b", fg: "white", label: "preto" },
       };
+      const CONTINENT_COLORS = {
+        "North America": "#e9c46a", "South America": "#f4a261", "Europe": "#8ecae6",
+        "Africa": "#e07a5f", "Asia": "#90be6d", "Australia": "#c77dff",
+      };
+      const ICONS = { infantry: "Infantaria", cavalry: "Cavalaria", artillery: "Artilharia", wild: "Curinga" };
+
+      const layout = await (await fetch(LAYOUT_URL)).json();
 
       let gameState = null;
       let currentPlayerIndex = null;
@@ -47,18 +78,37 @@
       let reinforcements = 0;
       let phase = "waiting";
       let selectedTerritory = null;
+      let hand = { cards: [], combos: [] };
+      let selectedCards = [];
+      let boardDrawn = false;
 
       const logElement = document.getElementById("log");
+      const hintElem = document.getElementById("hint");
       const meElem = document.getElementById("me");
       const missionElem = document.getElementById("mission");
       const currentPlayerElem = document.getElementById("currentPlayer");
       const reinforcementsElem = document.getElementById("reinforcements");
       const phaseElem = document.getElementById("phase");
+      const playersElem = document.getElementById("players");
+      const cardsElem = document.getElementById("cards");
       const btnStartTurn = document.getElementById("btnStartTurn");
+      const btnFortify = document.getElementById("btnFortify");
       const btnEndTurn = document.getElementById("btnEndTurn");
+      const btnTrade = document.getElementById("btnTrade");
       const btnJoin = document.getElementById("btnJoin");
       const mapElem = document.getElementById("map");
       const roomInput = document.getElementById("roomId");
+
+      mapElem.setAttribute("viewBox", `0 0 ${layout.width} ${layout.height}`);
+      const boardLayer = svg("g");
+      const nodeLayer = svg("g");
+      mapElem.append(boardLayer, nodeLayer);
+
+      function svg(tag, attrs = {}) {
+        const el = document.createElementNS(SVG_NS, tag);
+        for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+        return el;
+      }
 
       function log(msg) {
         logElement.textContent += msg + "\n";
@@ -79,10 +129,16 @@
         return `Jogador ${index + 1}` + (color ? ` (${color.label})` : "");
       }
 
+      function territoryLabel(name) {
+        const t = gameState && gameState.territories[name];
+        return t ? t.label : name;
+      }
+
       // Guarda o estado recebido do servidor e redesenha o mapa.
       // A fase e os reforços vêm do servidor; fora do próprio turno o jogador só espera.
       function applyState(s) {
         const finishedBefore = gameState !== null && gameState.winnerId !== null;
+        const previousPhase = phase;
         gameState = s;
         currentPlayerIndex = s.currentPlayerIndex;
         if (s.winnerId !== null) {
@@ -95,7 +151,7 @@
           phase = "waiting";
           reinforcements = 0;
         }
-        if (phase !== "attacking") {
+        if (phase !== previousPhase || !canBeSource(selectedTerritory)) {
           selectedTerritory = null;
         }
         if (myPlayerIndex !== null) {
@@ -106,66 +162,217 @@
         if (s.winnerId !== null && !finishedBefore) {
           log(`Fim de jogo! ${playerLabel(s.winnerId)} venceu a partida.`);
         }
+        render();
+      }
+
+      function render() {
+        if (!gameState) return;
         updateControls();
-        renderMap(s);
+        renderPlayers();
+        renderCards();
+        renderMap();
       }
 
       function updateControls() {
         btnStartTurn.disabled = !(phase === "waiting" && isMyTurn());
-        btnEndTurn.disabled = phase !== "attacking";
-        if (phase === "finished") {
-          phaseElem.textContent = `Fim de jogo - ${playerLabel(gameState.winnerId)} venceu`;
-        } else if (phase === "placing") {
-          phaseElem.textContent = "Posicionando tropas";
-        } else if (phase === "attacking") {
-          phaseElem.textContent = "Ataque";
-        } else {
-          phaseElem.textContent = "Esperando";
-        }
+        btnFortify.disabled = phase !== "attacking";
+        btnEndTurn.disabled = !(phase === "attacking" || phase === "fortifying");
+        const phases = { placing: "Posicionando tropas", attacking: "Ataque", fortifying: "Remanejamento", waiting: "Esperando" };
+        phaseElem.textContent = phase === "finished"
+          ? `Fim de jogo - ${playerLabel(gameState.winnerId)} venceu`
+          : phases[phase];
         reinforcementsElem.textContent = reinforcements;
+        hintElem.textContent = hintText();
       }
 
-      function joinRoom() {
-        const roomId = currentRoomId();
-        gameState = null;
-        myPlayerIndex = null;
-        meElem.textContent = "-";
-        missionElem.textContent = "-";
-        sock.emit("join", { roomId, numPlayers: 3 });
-        log(`Entrando na sala "${roomId}"...`);
+      function hintText() {
+        if (phase === "finished") return "";
+        if (myPlayerIndex === null) return "Você está assistindo a partida.";
+        if (!isMyTurn()) return `Aguardando ${playerLabel(currentPlayerIndex)}.`;
+        if (phase === "waiting") return "É a sua vez: clique em Iniciar turno.";
+        if (phase === "placing") return `Clique nos seus territórios para posicionar os reforços (restam ${reinforcements}).`;
+        if (phase === "attacking") {
+          return selectedTerritory
+            ? `Atacando de ${territoryLabel(selectedTerritory)}: clique em um vizinho inimigo destacado, ou no próprio território para cancelar.`
+            : "Clique em um território seu com 2 ou mais tropas para atacar, ou use Remanejar tropas / Encerrar turno.";
+        }
+        return selectedTerritory
+          ? `Movendo de ${territoryLabel(selectedTerritory)}: cada clique em um vizinho seu move 1 tropa. Clique no próprio território para soltar.`
+          : "Clique em um território seu para mover tropas a um vizinho seu. Cada tropa se move uma vez por turno.";
       }
 
-      function startTurn() {
-        sock.emit("start_turn", { roomId: currentRoomId() });
+      function renderPlayers() {
+        playersElem.innerHTML = "";
+        gameState.players.forEach(p => {
+          const row = document.createElement("div");
+          row.className = "player-row" + (p.id === currentPlayerIndex ? " current" : "") + (p.alive ? "" : " dead");
+          const swatch = document.createElement("span");
+          swatch.className = "swatch";
+          swatch.style.background = (COLORS[p.color] || {}).bg;
+          const name = document.createElement("span");
+          name.textContent = playerLabel(p.id) + (p.id === myPlayerIndex ? " - você" : "");
+          const numbers = document.createElement("span");
+          numbers.className = "numbers";
+          numbers.textContent = `${p.territories.length} territórios · ${p.cardCount} cartas`;
+          row.append(swatch, name, numbers);
+          playersElem.appendChild(row);
+        });
       }
 
-      function endTurn() {
-        sock.emit("end_turn", { roomId: currentRoomId() });
+      // --- cartas ---
+
+      function selectedCombo() {
+        const key = [...selectedCards].sort().join(",");
+        return selectedCards.length === 3 && hand.combos.some(c => [...c].sort().join(",") === key);
       }
 
-      function renderMap(state) {
-        mapElem.innerHTML = "";
-        Object.values(state.territories).forEach(t => {
-          const div = document.createElement("div");
-          div.classList.add("territory");
-          div.textContent = t.name;
-          div.title = `Continente: ${t.continent}\nVizinho(s): ${t.neighbors.join(", ")}`;
-          const owner = t.ownerId !== null ? state.players[t.ownerId] : null;
-          const color = owner && COLORS[owner.color];
-          if (color) {
-            div.style.backgroundColor = color.bg;
-            div.style.color = color.fg;
+      function renderCards() {
+        selectedCards = selectedCards.filter(id => hand.cards.some(c => c.id === id));
+        cardsElem.innerHTML = "";
+        if (hand.cards.length === 0) {
+          const empty = document.createElement("span");
+          empty.className = "empty";
+          empty.textContent = "Nenhuma carta. Você ganha uma ao fim de cada turno em que conquistar um território.";
+          cardsElem.appendChild(empty);
+        }
+        hand.cards.forEach(card => {
+          const btn = document.createElement("button");
+          btn.className = "card" + (selectedCards.includes(card.id) ? " selected" : "");
+          const icon = document.createElement("strong");
+          icon.textContent = ICONS[card.icon] || card.icon;
+          btn.append(icon, document.createTextNode(card.territory || "Vale por qualquer símbolo"));
+          btn.addEventListener("click", () => {
+            if (selectedCards.includes(card.id)) {
+              selectedCards = selectedCards.filter(id => id !== card.id);
+            } else if (selectedCards.length < 3) {
+              selectedCards.push(card.id);
+            }
+            renderCards();
+          });
+          cardsElem.appendChild(btn);
+        });
+        const value = gameState.nextTradeValue;
+        btnTrade.textContent = value ? `Trocar 3 cartas por ${value} tropas` : "Trocar cartas";
+        btnTrade.disabled = !(phase === "placing" && selectedCombo());
+        if (phase === "placing" && hand.combos.length > 0 && !selectedCombo()) {
+          btnTrade.title = "Selecione 3 cartas com o mesmo símbolo ou 3 símbolos diferentes.";
+        } else if (phase !== "placing") {
+          btnTrade.title = "A troca é feita no seu turno, antes de posicionar todos os reforços.";
+        } else {
+          btnTrade.title = "";
+        }
+      }
+
+      function tradeCards() {
+        sock.emit("trade", { roomId: currentRoomId(), cards: selectedCards });
+        selectedCards = [];
+      }
+
+      // --- mapa ---
+
+      function pos(name) {
+        return layout.territories[name];
+      }
+
+      // Fundo do tabuleiro: manchas dos continentes, fronteiras e rótulos. Desenhado uma vez.
+      function drawBoard() {
+        const territories = Object.values(gameState.territories);
+        // Um grupo por continente, para a transparência não acumular onde os círculos se sobrepõem
+        const blobs = {};
+        territories.forEach(t => {
+          if (!blobs[t.continent]) {
+            blobs[t.continent] = svg("g", { class: "continent-blob", fill: CONTINENT_COLORS[t.continent] || "#888" });
+            boardLayer.appendChild(blobs[t.continent]);
           }
-          if (t.ownerId === myPlayerIndex) {
-            div.classList.add("own");
-          }
-          const troops = document.createElement("div");
-          troops.classList.add("troops");
-          troops.textContent = t.armies;
-          div.appendChild(troops);
+          const [x, y] = pos(t.name);
+          blobs[t.continent].appendChild(svg("circle", { cx: x, cy: y, r: 58 }));
+        });
+        const drawn = new Set();
+        territories.forEach(t => {
+          t.neighbors.forEach(n => {
+            const key = [t.name, n].sort().join("|");
+            if (drawn.has(key)) return;
+            drawn.add(key);
+            const [x1, y1] = pos(t.name);
+            const [x2, y2] = pos(n);
+            if (Math.abs(x1 - x2) > layout.width / 2) {
+              // Fronteira que dá a volta no mapa (Alasca-Kamchatka): sai pelas duas bordas
+              const [lx, ly] = x1 < x2 ? [x1, y1] : [x2, y2];
+              const [rx, ry] = x1 < x2 ? [x2, y2] : [x1, y1];
+              boardLayer.appendChild(svg("line", { class: "edge wrap", x1: lx, y1: ly, x2: 0, y2: ly }));
+              boardLayer.appendChild(svg("line", { class: "edge wrap", x1: rx, y1: ry, x2: layout.width, y2: ry }));
+            } else {
+              boardLayer.appendChild(svg("line", { class: "edge", x1, y1, x2, y2 }));
+            }
+          });
+        });
+        gameState.continents.forEach(c => {
+          const [x, y] = layout.continents[c.name];
+          const label = svg("text", { class: "continent-label", x, y, fill: CONTINENT_COLORS[c.name] || "#fff" });
+          label.textContent = `${c.label} +${c.bonus}`;
+          boardLayer.appendChild(label);
+        });
+        boardDrawn = true;
+      }
 
-          div.onclick = () => onTerritoryClick(t);
-          mapElem.appendChild(div);
+      // Quebra nomes longos em duas linhas, perto do meio
+      function splitLabel(label) {
+        if (label.length <= 13 || !label.includes(" ")) return [label];
+        const words = label.split(" ");
+        let best = 1;
+        for (let i = 1; i < words.length; i++) {
+          const left = words.slice(0, i).join(" ").length;
+          const bestLeft = words.slice(0, best).join(" ").length;
+          if (Math.abs(left - label.length / 2) < Math.abs(bestLeft - label.length / 2)) best = i;
+        }
+        return [words.slice(0, best).join(" "), words.slice(best).join(" ")];
+      }
+
+      function canBeSource(name) {
+        const t = name && gameState.territories[name];
+        if (!t || t.ownerId !== myPlayerIndex) return false;
+        if (phase === "attacking") return t.armies > 1;
+        if (phase === "fortifying") return (gameState.movable[name] || 0) > 0;
+        return false;
+      }
+
+      function isTarget(t) {
+        if (!selectedTerritory || !gameState.territories[selectedTerritory].neighbors.includes(t.name)) return false;
+        if (phase === "attacking") return t.ownerId !== myPlayerIndex;
+        if (phase === "fortifying") return t.ownerId === myPlayerIndex;
+        return false;
+      }
+
+      function renderMap() {
+        if (!boardDrawn) drawBoard();
+        nodeLayer.innerHTML = "";
+        Object.values(gameState.territories).forEach(t => {
+          const [x, y] = pos(t.name);
+          const owner = t.ownerId !== null ? gameState.players[t.ownerId] : null;
+          const color = (owner && COLORS[owner.color]) || { bg: "#666", fg: "white" };
+          const g = svg("g", { class: "territory", transform: `translate(${x} ${y})` });
+          if (t.ownerId === myPlayerIndex) g.classList.add("own");
+          if (t.name === selectedTerritory) g.classList.add("selected");
+          else if (isTarget(t)) g.classList.add("target");
+          else if (selectedTerritory) g.classList.add("dimmed");
+
+          const title = svg("title");
+          const continent = gameState.continents.find(c => c.name === t.continent);
+          title.textContent = `${t.label} (${continent ? continent.label : t.continent})\n`
+            + `${owner ? playerLabel(owner.id) : "Sem dono"} - ${t.armies} tropa(s)\n`
+            + `Fronteiras: ${t.neighbors.map(territoryLabel).join(", ")}`;
+          const circle = svg("circle", { r: 19, fill: color.bg });
+          const armies = svg("text", { class: "armies", fill: color.fg });
+          armies.textContent = t.armies;
+          const name = svg("text", { class: "name", y: 33 });
+          splitLabel(t.label).forEach((line, i) => {
+            const span = svg("tspan", { x: 0, dy: i === 0 ? 0 : 13 });
+            span.textContent = line;
+            name.appendChild(span);
+          });
+          g.append(title, circle, armies, name);
+          g.addEventListener("click", () => onTerritoryClick(t));
+          nodeLayer.appendChild(g);
         });
       }
 
@@ -177,30 +384,49 @@
           }
           // O servidor desconta o reforço e devolve o estado atualizado
           sock.emit("place", { roomId: currentRoomId(), placements: { [t.name]: 1 } });
-        } else if (phase === "attacking") {
-          if (!selectedTerritory) {
-            if (t.ownerId !== myPlayerIndex || t.armies <= 1) {
-              log("Selecione um território seu com pelo menos 2 tropas para atacar.");
-              return;
-            }
-            selectedTerritory = t.name;
-            log(`Território atacante selecionado: ${t.name}`);
-          } else {
-            if (t.ownerId === myPlayerIndex) {
-              log("Ataque deve ser para território inimigo.");
-              selectedTerritory = null;
-              return;
-            }
-            const attackDice = Math.min(3, gameState.territories[selectedTerritory].armies - 1);
-            sock.emit("attack", { roomId: currentRoomId(), from: selectedTerritory, to: t.name, dice: attackDice });
-            log(`Atacando de ${selectedTerritory} para ${t.name} com ${attackDice} dados.`);
+        } else if (phase === "attacking" || phase === "fortifying") {
+          if (t.name === selectedTerritory) {
             selectedTerritory = null;
+          } else if (selectedTerritory && isTarget(t)) {
+            if (phase === "attacking") {
+              const attackDice = Math.min(3, gameState.territories[selectedTerritory].armies - 1);
+              sock.emit("attack", { roomId: currentRoomId(), from: selectedTerritory, to: t.name, dice: attackDice });
+            } else {
+              sock.emit("fortify", { roomId: currentRoomId(), from: selectedTerritory, to: t.name, count: 1 });
+            }
+            return;
+          } else if (canBeSource(t.name)) {
+            selectedTerritory = t.name;
+          } else if (phase === "attacking") {
+            log(selectedTerritory
+              ? "O alvo precisa ser um território inimigo vizinho."
+              : "Selecione um território seu com pelo menos 2 tropas para atacar.");
+          } else {
+            log(selectedTerritory
+              ? "O destino precisa ser um território seu vizinho."
+              : "Selecione um território seu que ainda tenha tropas para mover.");
           }
+          render();
         } else if (phase === "finished") {
           log("A partida já terminou.");
         } else {
           log(isMyTurn() ? "Clique em Iniciar turno." : "Espere o seu turno.");
         }
+      }
+
+      // --- servidor ---
+
+      const sock = io();
+
+      function joinRoom() {
+        const roomId = currentRoomId();
+        gameState = null;
+        myPlayerIndex = null;
+        hand = { cards: [], combos: [] };
+        meElem.textContent = "-";
+        missionElem.textContent = "-";
+        sock.emit("join", { roomId, numPlayers: 3 });
+        log(`Entrando na sala "${roomId}"...`);
       }
 
       sock.on("connect", () => {
@@ -222,6 +448,11 @@
         missionElem.textContent = m.description;
       });
 
+      sock.on("hand", h => {
+        hand = h;
+        render();
+      });
+
       sock.on("message", m => log(m.text || JSON.stringify(m)));
 
       sock.on("state", applyState);
@@ -236,16 +467,21 @@
       });
 
       sock.on("attack_result", r => {
-        log("Resultado do ataque: " + JSON.stringify(r.result));
+        const res = r.result;
         applyState(r.state);
-        if (r.result.eliminated !== null && r.result.eliminated !== undefined) {
-          log(`${playerLabel(r.result.eliminated)} foi eliminado.`);
+        log(`${territoryLabel(r.from)} atacou ${territoryLabel(r.to)}: dados ${res.attacker_rolls.join(", ")} contra ${res.defender_rolls.join(", ")}. `
+          + `Ataque perdeu ${res.losses_attacker}, defesa perdeu ${res.losses_defender}.`
+          + (res.conquered ? " Território conquistado!" : ""));
+        if (res.eliminated !== null && res.eliminated !== undefined) {
+          log(`${playerLabel(res.eliminated)} foi eliminado.`);
         }
       });
 
       btnJoin.addEventListener("click", joinRoom);
-      btnStartTurn.addEventListener("click", startTurn);
-      btnEndTurn.addEventListener("click", endTurn);
+      btnStartTurn.addEventListener("click", () => sock.emit("start_turn", { roomId: currentRoomId() }));
+      btnFortify.addEventListener("click", () => sock.emit("begin_fortify", { roomId: currentRoomId() }));
+      btnEndTurn.addEventListener("click", () => sock.emit("end_turn", { roomId: currentRoomId() }));
+      btnTrade.addEventListener("click", tradeCards);
     };
   </script>
 </body>

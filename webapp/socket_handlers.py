@@ -2,7 +2,7 @@ from flask import request
 from flask_socketio import join_room, emit
 from war_game.rules.errors import RuleError
 from webapp.rooms import rooms
-from webapp.state_adapter import state_to_dict
+from webapp.state_adapter import hand_to_dict, state_to_dict
 
 # Dicionário global para mapear sala para dicionário sid->player_index
 room_players = {}
@@ -23,6 +23,18 @@ def register_socket_handlers(socketio):
             reply(f"Não é seu turno para {action}.")
             return None
         return room_id, room
+
+    def public_state(room):
+        return state_to_dict(room.state, room.tm)
+
+    def send_hands(room_id, room):
+        # Cada jogador recebe só as próprias cartas
+        for sid, player_index in room_players.get(room_id, {}).items():
+            emit("hand", hand_to_dict(room.state, room.tm, player_index), room=sid)
+
+    def broadcast_state(room_id, room):
+        emit("state", public_state(room), room=room_id)
+        send_hands(room_id, room)
 
     @socketio.on("join")
     def on_join(data):
@@ -51,11 +63,12 @@ def register_socket_handlers(socketio):
                 seats[request.sid] = player_index
 
         emit("joined", {"playerIndex": player_index}, room=request.sid)
-        emit("state", state_to_dict(room.state), room=request.sid)
+        emit("state", public_state(room), room=request.sid)
         if player_index is None:
             reply(f"A sala {room_id} está cheia; você entrou como espectador.")
             return
         emit("mission", {"description": room.state.missions[player_index].description}, room=request.sid)
+        emit("hand", hand_to_dict(room.state, room.tm, player_index), room=request.sid)
         emit("message", {"text": f"Entrou na sala {room_id} como Jogador {player_index + 1}."}, to=room_id)
 
     @socketio.on("start_turn")
@@ -69,7 +82,27 @@ def register_socket_handlers(socketio):
         except RuleError as e:
             reply(str(e))
             return
-        emit("turn_started", {"reinforcements": reinf, "state": state_to_dict(room.state)}, room=room_id)
+        emit("turn_started", {"reinforcements": reinf, "state": public_state(room)}, room=room_id)
+
+    @socketio.on("trade")
+    def on_trade(data):
+        found = current_room(data, "trocar cartas")
+        if not found:
+            return
+        room_id, room = found
+        cards = data.get("cards")
+        try:
+            if not isinstance(cards, list) or not all(isinstance(c, str) for c in cards):
+                raise RuleError("Escolha 3 cartas da sua mão.")
+            gained = room.tm.trade_cards_if_any(cards)
+            if not gained:
+                raise RuleError("Escolha 3 cartas da sua mão.")
+        except RuleError as e:
+            reply(str(e))
+            return
+        player = room.state.current_player()
+        emit("message", {"text": f"{player.name} trocou cartas por {gained} tropas."}, room=room_id)
+        broadcast_state(room_id, room)
 
     @socketio.on("place")
     def on_place(data):
@@ -85,7 +118,7 @@ def register_socket_handlers(socketio):
         except RuleError as e:
             reply(str(e))
             return
-        emit("state", state_to_dict(room.state), room=room_id)
+        emit("state", public_state(room), room=room_id)
 
     @socketio.on("attack")
     def on_attack(data):
@@ -103,7 +136,40 @@ def register_socket_handlers(socketio):
         except RuleError as e:
             reply(str(e))
             return
-        emit("attack_result", {"result": res, "state": state_to_dict(room.state)}, room=room_id)
+        emit("attack_result", {"result": res, "from": from_t, "to": to_t, "state": public_state(room)}, room=room_id)
+        if res["eliminated"] is not None:
+            # As cartas do eliminado mudaram de mão
+            send_hands(room_id, room)
+
+    @socketio.on("begin_fortify")
+    def on_begin_fortify(data):
+        found = current_room(data, "remanejar")
+        if not found:
+            return
+        room_id, room = found
+        try:
+            room.tm.begin_fortify()
+        except RuleError as e:
+            reply(str(e))
+            return
+        emit("state", public_state(room), room=room_id)
+
+    @socketio.on("fortify")
+    def on_fortify(data):
+        found = current_room(data, "remanejar")
+        if not found:
+            return
+        room_id, room = found
+        from_t = data.get("from")
+        to_t = data.get("to")
+        try:
+            if not isinstance(from_t, str) or not isinstance(to_t, str):
+                raise RuleError("Remanejamento inválido.")
+            room.tm.fortify(from_t, to_t, data.get("count", 1))
+        except RuleError as e:
+            reply(str(e))
+            return
+        emit("state", public_state(room), room=room_id)
 
     @socketio.on("end_turn")
     def on_end_turn(data):
@@ -116,7 +182,8 @@ def register_socket_handlers(socketio):
         except RuleError as e:
             reply(str(e))
             return
-        emit("state", state_to_dict(room.state), room=room_id)
+        # Quem conquistou um território pode ter recebido uma carta
+        broadcast_state(room_id, room)
 
     @socketio.on("disconnect")
     def on_disconnect():

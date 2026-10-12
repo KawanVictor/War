@@ -14,12 +14,20 @@ class TurnManager:
         self.state = state
         self.data_dir = data_dir
         self.trades_done = 0
+        # Tropas que ainda podem ser remanejadas a partir de cada território neste turno
+        self._movable = {}
 
-    def _require_phase(self, phase: str, message: str):
+    def _require_phase(self, phases, message: str):
         if self.state.winner_id is not None:
             raise RuleError("A partida já terminou.")
-        if self.state.phase != phase:
+        if self.state.phase not in ([phases] if isinstance(phases, str) else phases):
             raise RuleError(message)
+
+    def _label(self, territory: str) -> str:
+        return self.state.territories[territory].label
+
+    def card_defs(self) -> dict:
+        return {c["id"]: c for c in json.loads((self.data_dir / "cards.json").read_text(encoding="utf-8"))}
 
     def _check_victory(self):
         player = self.state.current_player()
@@ -41,8 +49,10 @@ class TurnManager:
         self._require_phase("placing", "Não é hora de posicionar tropas.")
         player = self.state.current_player()
         for territory, count in placements.items():
+            if territory not in self.state.territories:
+                raise RuleError("Território inexistente.")
             if territory not in player.territories:
-                raise RuleError(f"{territory} não pertence ao jogador da vez.")
+                raise RuleError(f"{self._label(territory)} não pertence ao jogador da vez.")
             if type(count) is not int or count < 1:
                 raise RuleError("A quantidade de tropas deve ser um inteiro positivo.")
         total = sum(placements.values())
@@ -61,7 +71,7 @@ class TurnManager:
         self._require_phase("placing", "Cartas só podem ser trocadas antes de posicionar os reforços.")
         chosen = tuple(chosen)
         player = self.state.current_player()
-        defs = {c["id"]: c for c in json.loads((self.data_dir / "cards.json").read_text(encoding="utf-8"))}
+        defs = self.card_defs()
         if len(chosen) != 3 or Counter(chosen) - Counter(player.cards):
             raise RuleError("Escolha 3 cartas da sua mão.")
         if not can_redeem_set(list(chosen), defs):
@@ -92,9 +102,41 @@ class TurnManager:
             self._check_victory()
         return result
 
+    def begin_fortify(self):
+        """Encerra os ataques e abre o remanejamento. Cada tropa só pode se mover uma vez por turno."""
+        self._require_phase("attacking", "O remanejamento só começa depois da fase de ataque.")
+        player = self.state.current_player()
+        self._movable = {t: self.state.territories[t].armies for t in player.territories}
+        self.state.phase = "fortifying"
+
+    def max_fortify(self, from_t: str) -> int:
+        """Quantas tropas ainda podem sair de `from_t` no remanejamento (sempre fica pelo menos uma)."""
+        if self.state.phase != "fortifying" or from_t not in self._movable:
+            return 0
+        return max(0, min(self._movable[from_t], self.state.territories[from_t].armies - 1))
+
+    def fortify(self, from_t: str, to_t: str, count: int):
+        self._require_phase("fortifying", "Não é hora de remanejar tropas.")
+        player = self.state.current_player()
+        if from_t not in self.state.territories or to_t not in self.state.territories:
+            raise RuleError("Território inexistente.")
+        if from_t not in player.territories or to_t not in player.territories:
+            raise RuleError("Só é possível remanejar entre territórios próprios.")
+        if to_t not in self.state.territories[from_t].neighbors:
+            raise RuleError(f"{self._label(to_t)} não faz fronteira com {self._label(from_t)}.")
+        if type(count) is not int or count < 1:
+            raise RuleError("A quantidade de tropas deve ser um inteiro positivo.")
+        if count > self.max_fortify(from_t):
+            raise RuleError(f"Só é possível mover {self.max_fortify(from_t)} tropa(s) de {self._label(from_t)}.")
+        self.state.territories[from_t].armies -= count
+        self.state.territories[to_t].armies += count
+        self._movable[from_t] -= count
+        self._check_victory()
+
     def end_turn(self):
-        self._require_phase("attacking", "Inicie o turno e posicione todos os reforços antes de encerrar.")
+        self._require_phase(("attacking", "fortifying"), "Inicie o turno e posicione todos os reforços antes de encerrar.")
         state = self.state
+        self._movable = {}
         if state.conquered_this_turn:
             if not state.deck and state.discard:
                 state.deck, state.discard = state.discard, []

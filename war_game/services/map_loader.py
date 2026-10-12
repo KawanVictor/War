@@ -10,6 +10,7 @@ def load_map(data_dir: Path) -> Dict[str, Territory]:
         territories[t["name"]] = Territory(
             name=t["name"],
             continent=t["continent"],
-            neighbors=set(t["neighbors"])
+            neighbors=set(t["neighbors"]),
+            label=t.get("label", "")
         )
     return territories

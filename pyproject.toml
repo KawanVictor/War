@@ -7,6 +7,7 @@ name = "war-game"
 version = "0.1.0"
 description = "Jogo de tabuleiro War (inspirado em Risk) com CLI e servidor web"
 readme = "README.md"
+license = { file = "LICENSE" }
 requires-python = ">=3.10"
 dependencies = [
     "Flask~=3.0.3",

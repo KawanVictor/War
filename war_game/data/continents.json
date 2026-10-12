@@ -1,8 +1,8 @@
 [
-  {"name":"North America","bonus":5},
-  {"name":"Europe","bonus":5},
-  {"name":"Asia","bonus":7},
-  {"name":"South America","bonus":2},
-  {"name":"Africa","bonus":3},
-  {"name":"Australia","bonus":2}
+  {"name":"North America","label":"América do Norte","bonus":5},
+  {"name":"Europe","label":"Europa","bonus":5},
+  {"name":"Asia","label":"Ásia","bonus":7},
+  {"name":"South America","label":"América do Sul","bonus":2},
+  {"name":"Africa","label":"África","bonus":3},
+  {"name":"Australia","label":"Oceania","bonus":2}
 ]
