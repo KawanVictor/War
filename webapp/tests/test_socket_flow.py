@@ -22,17 +22,36 @@ def only_error(client):
     """O cliente recebeu só uma mensagem de erro, sem mudança de estado."""
     return [n for n, _ in events(client)] == ["message"]
 
+def token_for(room, who):
+    return f"token-{room}-{who}"
+
+def join(room, who):
+    client = socketio.test_client(app)
+    client.emit("join", {"roomId": room, "token": token_for(room, who)})
+    return client
+
+def start_game(room, names="abc", num_players=3, skip_setup_round=True):
+    """Cria a sala com uma pessoa por letra de `names`, inicia a partida e devolve os clientes."""
+    clients = [join(room, who) for who in names]
+    if num_players != 3:
+        clients[0].emit("configure", {"numPlayers": num_players})
+    clients[0].emit("start_game", {})
+    if skip_setup_round:
+        rooms.get(room).state.setup_turns_left = 0
+    return clients
+
 @pytest.fixture
 def game():
+    """Partida de 3 pessoas já fora da primeira rodada. Devolve a sala, dois dos jogadores e o estado inicial."""
     room = next(_room_ids)
-    a, b = socketio.test_client(app), socketio.test_client(app)
-    a.emit("join", {"roomId": room, "numPlayers": 3})
+    a, b, c = start_game(room)
     state = last(a, "state")
-    b.emit("join", {"roomId": room, "numPlayers": 3})
-    events(a), events(b)
+    for client in (a, b, c):
+        events(client)
     yield room, a, b, state
-    a.disconnect()
-    b.disconnect()
+    for client in (a, b, c):
+        if client.is_connected():
+            client.disconnect()
 
 def own_and_enemy_neighbor(state, player_id):
     for name in state["players"][player_id]["territories"]:
@@ -42,9 +61,9 @@ def own_and_enemy_neighbor(state, player_id):
     raise AssertionError("jogador sem fronteira inimiga")
 
 def start_and_place_all(room, client, territory):
-    client.emit("start_turn", {"roomId": room})
+    client.emit("start_turn", {})
     reinf = last(client, "turn_started")["reinforcements"]
-    client.emit("place", {"roomId": room, "placements": {territory: reinf}})
+    client.emit("place", {"placements": {territory: reinf}})
     return last(client, "state")
 
 def test_index_page_loads():
@@ -52,68 +71,47 @@ def test_index_page_loads():
     assert resp.status_code == 200
     assert b"socket.io" in resp.data
 
-def test_join_assigns_seats_and_sends_state():
+def test_game_starts_with_seats_in_join_order():
     room = next(_room_ids)
-    a, b = socketio.test_client(app), socketio.test_client(app)
-    a.emit("join", {"roomId": room, "numPlayers": 3})
-    ev = events(a)
-    assert ("joined", {"playerIndex": 0}) in ev
-    state = [d for n, d in ev if n == "state"][0]
-    assert len(state["territories"]) == 42
-    assert [len(p["territories"]) for p in state["players"]] == [14, 14, 14]
-    assert state["currentPlayerIndex"] == 0
-    assert state["phase"] == "waiting" and state["winnerId"] is None
-    b.emit("join", {"roomId": room, "numPlayers": 3})
-    assert last(b, "joined") == {"playerIndex": 1}
+    a, b, c = start_game(room, skip_setup_round=False)
+    seats = [[d for n, d in events(x) if n == "joined"][-1] for x in (a, b, c)]
+    assert seats == [{"playerIndex": i, "started": True} for i in range(3)]
+    state = rooms.get(room).state
+    assert len(state.territories) == 42
+    assert [len(p.territories) for p in state.players] == [14, 14, 14]
+    assert state.current_player_index == 0 and state.phase == "waiting" and state.winner_id is None
 
 def test_mission_is_sent_only_to_its_owner():
     room = next(_room_ids)
-    a, b = socketio.test_client(app), socketio.test_client(app)
-    a.emit("join", {"roomId": room, "numPlayers": 3})
-    ev_a = events(a)
-    b.emit("join", {"roomId": room, "numPlayers": 3})
+    a, b, c = start_game(room)
     missions = rooms.get(room).state.missions
+    ev_a, ev_b = events(a), events(b)
     assert [d for n, d in ev_a if n == "mission"] == [{"description": missions[0].description}]
-    assert last(b, "mission") == {"description": missions[1].description}
-    assert "mission" not in [n for n, _ in events(a)]
-    assert "missions" not in [d for n, d in ev_a if n == "state"][0]
+    assert [d for n, d in ev_b if n == "mission"] == [{"description": missions[1].description}]
+    assert "missions" not in [d for n, d in ev_a if n == "state"][-1]
 
-def test_extra_players_join_as_spectators():
-    room = next(_room_ids)
-    clients = [socketio.test_client(app) for _ in range(4)]
-    seats = []
-    for c in clients:
-        c.emit("join", {"roomId": room, "numPlayers": 3})
-        ev = events(c)
-        seats.append([d for n, d in ev if n == "joined"][0]["playerIndex"])
-        spectator_events = ev
-    assert seats == [0, 1, 2, None]
-    assert "mission" not in [n for n, _ in spectator_events]
-    assert "state" in [n for n, _ in spectator_events]
-    # o espectador não consegue jogar no lugar do Jogador 1
-    for c in clients:
-        events(c)
-    clients[3].emit("start_turn", {"roomId": room})
-    assert only_error(clients[3])
-    assert events(clients[0]) == []
-
-@pytest.mark.parametrize("num_players", [1, 7, "3", None])
-def test_invalid_number_of_players_does_not_create_room(num_players):
-    room = next(_room_ids)
+def test_events_before_joining_a_room_report_error():
     c = socketio.test_client(app)
-    c.emit("join", {"roomId": room, "numPlayers": num_players})
-    assert only_error(c)
-    assert rooms.get(room) is None
+    for event in ["start_turn", "place", "attack", "occupy", "begin_fortify", "fortify", "trade", "end_turn",
+                  "configure", "start_game"]:
+        c.emit(event, {"roomId": "nao-existe"})
+        assert only_error(c), event
+    assert rooms.get("nao-existe") is None
 
-def test_events_for_unknown_room_do_not_create_it():
+def test_game_events_in_the_lobby_report_error():
     room = next(_room_ids)
-    c = socketio.test_client(app)
+    a = join(room, "a")
+    events(a)
     for event in ["start_turn", "place", "attack", "end_turn"]:
-        c.emit(event, {"roomId": room})
-        assert only_error(c)
-    c.emit("start_turn", {})
-    assert only_error(c)
-    assert rooms.get(room) is None
+        a.emit(event, {})
+        assert only_error(a), event
+
+@pytest.mark.parametrize("payload", [None, "texto", 42, ["lista"]])
+def test_non_dict_payloads_are_tolerated(game, payload):
+    room, a, b, state = game
+    for event in ["place", "attack", "fortify", "trade", "occupy"]:
+        a.emit(event, payload)
+        assert only_error(a), event
 
 def test_only_current_player_can_act(game):
     room, a, b, state = game
@@ -123,13 +121,13 @@ def test_only_current_player_can_act(game):
         ("attack", {"from": "x", "to": "y", "dice": 1}),
         ("end_turn", {}),
     ]:
-        b.emit(event, {"roomId": room, **payload})
+        b.emit(event, payload)
         assert only_error(b)
         assert events(a) == []
 
 def test_full_turn(game):
     room, a, b, state = game
-    a.emit("start_turn", {"roomId": room})
+    a.emit("start_turn", {})
     started = last(a, "turn_started")
     assert started["reinforcements"] == 4  # 14 territórios // 3
     assert started["state"]["phase"] == "placing"
@@ -137,40 +135,41 @@ def test_full_turn(game):
     assert last(b, "turn_started")["state"]["currentPlayerIndex"] == 0
 
     src, target = own_and_enemy_neighbor(state, 0)
-    a.emit("place", {"roomId": room, "placements": {src: 3}})
+    a.emit("place", {"placements": {src: 3}})
     placed = last(a, "state")
     assert placed["territories"][src]["armies"] == 4
     assert placed["reinforcementsLeft"] == 1 and placed["phase"] == "placing"
-    a.emit("place", {"roomId": room, "placements": {src: 1}})
+    a.emit("place", {"placements": {src: 1}})
     assert last(a, "state")["phase"] == "attacking"
     assert last(b, "state")["territories"][src]["armies"] == 5
 
-    a.emit("attack", {"roomId": room, "from": src, "to": target, "dice": 3})
+    a.emit("attack", {"from": src, "to": target, "dice": 3})
     result = last(a, "attack_result")
     assert len(result["result"]["attacker_rolls"]) == 3
+    assert result["from"] == src and result["to"] == target
     assert len(result["state"]["territories"]) == 42
 
-    a.emit("end_turn", {"roomId": room})
+    a.emit("end_turn", {})
     ended = last(a, "state")
     assert ended["currentPlayerIndex"] == 1 and ended["phase"] == "waiting"
     assert last(b, "state")["currentPlayerIndex"] == 1
 
 def test_turn_cannot_be_started_twice(game):
     room, a, b, state = game
-    a.emit("start_turn", {"roomId": room})
+    a.emit("start_turn", {})
     events(a), events(b)
-    a.emit("start_turn", {"roomId": room})
+    a.emit("start_turn", {})
     assert only_error(a)
     assert events(b) == []
 
 def test_cannot_place_more_than_reinforcements(game):
     room, a, b, state = game
     own = state["players"][0]["territories"][0]
-    a.emit("place", {"roomId": room, "placements": {own: 1}})  # turno ainda não iniciado
+    a.emit("place", {"placements": {own: 1}})  # turno ainda não iniciado
     assert only_error(a)
-    a.emit("start_turn", {"roomId": room})
+    a.emit("start_turn", {})
     events(a), events(b)
-    a.emit("place", {"roomId": room, "placements": {own: 5}})
+    a.emit("place", {"placements": {own: 5}})
     assert only_error(a)
     assert events(b) == []
     assert rooms.get(room).state.territories[own].armies == 1
@@ -178,11 +177,11 @@ def test_cannot_place_more_than_reinforcements(game):
 def test_cannot_attack_or_end_turn_before_placing(game):
     room, a, b, state = game
     src, target = own_and_enemy_neighbor(state, 0)
-    a.emit("start_turn", {"roomId": room})
+    a.emit("start_turn", {})
     events(a), events(b)
-    a.emit("attack", {"roomId": room, "from": src, "to": target, "dice": 1})
+    a.emit("attack", {"from": src, "to": target, "dice": 1})
     assert only_error(a)
-    a.emit("end_turn", {"roomId": room})
+    a.emit("end_turn", {})
     assert only_error(a)
     assert events(b) == []
     assert rooms.get(room).state.current_player_index == 0
@@ -190,9 +189,9 @@ def test_cannot_attack_or_end_turn_before_placing(game):
 @pytest.mark.parametrize("placements", [None, [], "abc", {"Atlantis": 1}])
 def test_invalid_placement_reports_error(game, placements):
     room, a, b, state = game
-    a.emit("start_turn", {"roomId": room})
+    a.emit("start_turn", {})
     events(a), events(b)
-    a.emit("place", {"roomId": room, "placements": placements})
+    a.emit("place", {"placements": placements})
     assert only_error(a)
     assert events(b) == []
 
@@ -200,9 +199,9 @@ def test_invalid_placement_reports_error(game, placements):
 def test_invalid_placement_count_reports_error(game, count):
     room, a, b, state = game
     own = state["players"][0]["territories"][0]
-    a.emit("start_turn", {"roomId": room})
+    a.emit("start_turn", {})
     events(a), events(b)
-    a.emit("place", {"roomId": room, "placements": {own: count}})
+    a.emit("place", {"placements": {own: count}})
     assert only_error(a)
     assert events(b) == []
 
@@ -224,7 +223,7 @@ def test_invalid_attacks_report_error_without_broadcast(game):
         {"from": src, "to": ["x"], "dice": 1},
         {"to": target},
     ]:
-        a.emit("attack", {"roomId": room, **payload})
+        a.emit("attack", payload)
         assert only_error(a), payload
         assert events(b) == []
 
@@ -245,10 +244,10 @@ def test_game_over_is_broadcast_and_blocks_further_actions(game, monkeypatch):
 
     start_and_place_all(room, a, src)
     events(a), events(b)
-    a.emit("attack", {"roomId": room, "from": src, "to": target, "dice": 3})
+    a.emit("attack", {"from": src, "to": target, "dice": 3})
     result = last(b, "attack_result")
     assert result["result"]["eliminated"] is not None
     assert result["state"]["winnerId"] == 0
     events(a)
-    a.emit("end_turn", {"roomId": room})
+    a.emit("end_turn", {})
     assert only_error(a)

@@ -6,6 +6,10 @@ body {
   padding: 0;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 .bar {
   display: flex;
   flex-wrap: wrap;
@@ -15,23 +19,35 @@ body {
   align-items: center;
 }
 
-.bar input, button {
+input, select, button {
   padding: 8px 12px;
   border-radius: 5px;
   border: none;
   font-weight: bold;
-  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+input, select {
+  background: #3a3a5a;
+  color: #f0f0f5;
 }
 
 .bar input {
   width: 200px;
-  background: #3a3a5a;
-  color: #f0f0f5;
+}
+
+.qty {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
 }
 
 button {
   background: #5661d6;
   color: white;
+  cursor: pointer;
   transition: background-color 0.3s ease;
 }
 
@@ -90,6 +106,28 @@ button:disabled {
   color: #ffd60a;
 }
 
+#lobby p {
+  margin: 8px 0;
+}
+
+#lobby label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+#conquest {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+#conquest input {
+  width: 70px;
+}
+
 /* --- mapa --- */
 
 #map {
@@ -102,79 +140,95 @@ button:disabled {
 }
 
 .continent-blob {
-  opacity: 0.2;
+  opacity: 0.22;
 }
 
 .continent-label {
   font-size: 15px;
   font-weight: bold;
-  opacity: 0.85;
+  paint-order: stroke;
+  stroke: #16243a;
+  stroke-width: 4px;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+
+.cell {
+  stroke: #0d1524;
+  stroke-width: 2;
+  stroke-linejoin: round;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+
+.cell:hover {
+  filter: brightness(1.15);
+}
+
+.cell.selected {
+  stroke: #ffffff;
+  stroke-width: 4;
+}
+
+.cell.target {
+  stroke: #ffffff;
+  stroke-width: 3;
+  stroke-dasharray: 7 4;
+}
+
+.cell.dimmed {
+  opacity: 0.4;
 }
 
 .edge {
-  stroke: #8f9bc4;
-  stroke-width: 1.5;
-  opacity: 0.7;
+  stroke: #ffffff;
+  stroke-width: 1;
+  opacity: 0.28;
+  pointer-events: none;
 }
 
-.edge.wrap {
+.edge.sea {
+  stroke-width: 1.5;
   stroke-dasharray: 5 4;
+  opacity: 0.6;
 }
 
 .territory {
   cursor: pointer;
 }
 
-.territory circle {
+.territory.dimmed {
+  opacity: 0.5;
+}
+
+.territory .badge {
+  fill: #0d1524;
   stroke: #0d1524;
   stroke-width: 2;
-  transition: r 0.15s ease;
 }
 
-.territory:hover circle {
-  r: 22px;
-}
-
-.territory.own circle {
+.territory.own .badge {
   stroke: #ffd60a;
-  stroke-width: 3;
-}
-
-.territory.selected circle {
-  stroke: #ffffff;
-  stroke-width: 5;
-}
-
-.territory.target circle {
-  stroke: #ffffff;
-  stroke-width: 3;
-  stroke-dasharray: 5 3;
-}
-
-.territory.dimmed {
-  opacity: 0.45;
+  stroke-width: 2.5;
 }
 
 .territory .armies {
-  font-size: 15px;
+  font-size: 14px;
   font-weight: bold;
+  fill: #ffffff;
   text-anchor: middle;
   dominant-baseline: central;
   pointer-events: none;
 }
 
 .territory .name {
-  font-size: 11.5px;
-  fill: #f0f0f5;
+  font-size: 10.5px;
+  font-weight: bold;
   text-anchor: middle;
-  paint-order: stroke;
-  stroke: #16243a;
-  stroke-width: 3.5px;
-  stroke-linejoin: round;
   pointer-events: none;
 }
 
-/* --- jogadores e cartas --- */
+/* --- jogadores, dados e cartas --- */
 
 .player-row {
   display: flex;
@@ -200,11 +254,46 @@ button:disabled {
   flex: none;
 }
 
+.substitute {
+  margin: 2px 0 6px 22px;
+  padding: 5px 10px;
+  font-size: 0.8rem;
+}
+
 .player-row .numbers {
   margin-left: auto;
   color: #c9cdf0;
   font-weight: normal;
   white-space: nowrap;
+}
+
+.dice-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 0;
+}
+
+.dice-row > span:first-child {
+  width: 4em;
+  color: #a9add6;
+}
+
+.die {
+  font-size: 2rem;
+  line-height: 1;
+}
+
+.die.attack {
+  color: #ff6b6b;
+}
+
+.die.defense {
+  color: #f0f0f5;
+}
+
+.die.lost {
+  opacity: 0.35;
 }
 
 #cards {

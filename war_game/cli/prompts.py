@@ -1,4 +1,6 @@
-def ask_int(prompt: str, min_val: int = None, max_val: int = None) -> int:
+from typing import Optional
+
+def ask_int(prompt: str, min_val: Optional[int] = None, max_val: Optional[int] = None) -> int:
     while True:
         try:
             val = int(input(prompt))
@@ -9,7 +11,7 @@ def ask_int(prompt: str, min_val: int = None, max_val: int = None) -> int:
         except ValueError:
             print("Entrada inválida, digite um número inteiro.")
 
-def ask_str(prompt: str, valid_options: list = None) -> str:
+def ask_str(prompt: str, valid_options: Optional[list] = None) -> str:
     while True:
         val = input(prompt).strip()
         if valid_options and val not in valid_options:

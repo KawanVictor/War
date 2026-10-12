@@ -15,7 +15,7 @@ def max_defend_dice(armies: int) -> int:
 def resolve_battle(attacking: List[int], defending: List[int]) -> Tuple[int, int]:
     losses_attacker = 0
     losses_defender = 0
-    for a, d in zip(attacking, defending):
+    for a, d in zip(attacking, defending, strict=False):  # só os dados que têm par são comparados
         if a > d:
             losses_defender += 1
         else:
@@ -38,6 +38,10 @@ def attack_once(state: GameState, from_t: str, to_t: str, attack_dice: int, defe
     if not 1 <= defend_dice <= max_defend_dice(d_t.armies):
         raise RuleError(f"Quantidade de dados de defesa inválida para {d_t.armies} tropa(s).")
 
+    defender_id = d_t.owner_id
+    if defender_id is None:
+        raise RuleError(f"{d_t.label} não tem dono.")
+
     a_rolls = roll_dice(attack_dice)
     d_rolls = roll_dice(defend_dice)
     la, ld = resolve_battle(a_rolls, d_rolls)
@@ -47,10 +51,10 @@ def attack_once(state: GameState, from_t: str, to_t: str, attack_dice: int, defe
 
     conquered = False
     if d_t.armies == 0:
-        old_owner = d_t.owner_id
-        d_t.owner_id = a_t.owner_id
-        state.players[old_owner].territories.remove(d_t.name)
-        state.players[a_t.owner_id].territories.add(d_t.name)
+        attacker = state.current_player()
+        d_t.owner_id = attacker.id
+        state.players[defender_id].territories.remove(d_t.name)
+        attacker.territories.add(d_t.name)
         move = min(max(attack_dice, 1), a_t.armies - 1 if a_t.armies > 1 else 0)
         if move > 0:
             a_t.armies -= move

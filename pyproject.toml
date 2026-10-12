@@ -16,10 +16,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8"]
+dev = ["pytest>=8", "ruff", "mypy"]
+browser = ["playwright"]
 
 [project.scripts]
 war-cli = "war_game.cli.main:main"
+war-web = "webapp.app:main"
 
 [tool.setuptools.packages.find]
 include = ["war_game*", "webapp*"]
@@ -27,8 +29,32 @@ exclude = ["*.tests"]
 
 [tool.setuptools.package-data]
 war_game = ["data/*.json"]
-webapp = ["templates/*.html", "static/*"]
+webapp = ["templates/*.html", "static/*", "static/vendor/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["war_game/tests", "webapp/tests"]
 pythonpath = ["."]
+markers = ["browser: testes que abrem a página em um navegador de verdade (precisam do Playwright)"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 120
+
+[tool.ruff.lint]
+# Erros de sintaxe, nomes indefinidos, imports e variáveis sem uso, e armadilhas comuns
+select = ["E4", "E7", "E9", "F", "B"]
+
+[tool.ruff.lint.per-file-ignores]
+# Fixtures importadas de outro módulo de teste parecem imports sem uso e parâmetros redefinidos
+"*/tests/*" = ["F401", "F811"]
+
+[tool.mypy]
+python_version = "3.10"
+files = ["war_game", "webapp"]
+exclude = ["/tests/"]
+check_untyped_defs = true
+warn_unused_ignores = true
+
+[[tool.mypy.overrides]]
+module = ["flask_socketio"]
+ignore_missing_imports = true

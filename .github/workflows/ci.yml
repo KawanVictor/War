@@ -13,6 +13,27 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  lint:
+    name: Lint e tipos
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+
+      - name: Instalar dependências
+        run: pip install -r requirements-dev.txt
+
+      - name: Ruff
+        run: python -m ruff check .
+
+      - name: Mypy
+        run: python -m mypy
+
   test:
     name: Testes (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
@@ -32,8 +53,30 @@ jobs:
       - name: Instalar dependências
         run: pip install -r requirements-dev.txt
 
+      # Sem o Playwright instalado, os testes de navegador são pulados aqui e rodam no job abaixo
       - name: Rodar testes
         run: python -m pytest
 
       - name: Rodar testes com otimização (-O)
         run: python -O -m pytest
+
+  browser:
+    name: Testes no navegador
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-browser.txt
+
+      - name: Instalar dependências
+        run: pip install -r requirements-browser.txt
+
+      - name: Instalar o Chromium
+        run: python -m playwright install --with-deps chromium
+
+      - name: Rodar testes de navegador
+        run: python -m pytest -m browser -rs

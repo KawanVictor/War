@@ -67,15 +67,11 @@ def test_hands_are_private(game):
     assert [p["cardCount"] for p in players] == [3, 1, 0]
     assert all("cards" not in p for p in players)
 
-def test_join_sends_own_hand_with_labels_and_combos():
-    from test_socket_flow import _room_ids
-    from webapp.app import socketio
-    room = next(_room_ids)
-    a = socketio.test_client(app)
-    a.emit("join", {"roomId": room, "numPlayers": 3})
-    assert last(a, "hand") == {"cards": [], "combos": []}
+def test_join_sends_own_hand_with_labels_and_combos(game):
+    from test_socket_flow import token_for
+    room, a, b, state = game
     rooms.get(room).state.players[0].cards = ["c4", "c5", "c6", "c10"]
-    a.emit("join", {"roomId": room, "numPlayers": 3})
+    a.emit("join", {"roomId": room, "token": token_for(room, "a")})
     hand = last(a, "hand")
     assert hand["cards"][0] == {"id": "c4", "icon": "infantry", "territory": "Brasil"}
     assert hand["cards"][3] == {"id": "c10", "icon": "wild", "territory": None}

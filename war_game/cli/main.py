@@ -1,7 +1,9 @@
+import argparse
 from pathlib import Path
 from war_game.rules.cards import can_redeem_set, next_trade_value
 from war_game.rules.errors import RuleError
-from war_game.services.setup import new_game
+from war_game.services import bot
+from war_game.services.setup import MAX_PLAYERS, MIN_PLAYERS, new_game
 from war_game.services.turn_manager import TurnManager
 from war_game.cli.prompts import ask_int, ask_yes_no
 
@@ -46,8 +48,12 @@ def prompt_trade(tm):
         print(f"Trocas possíveis (valem {value} tropas):")
         for i, combo in enumerate(combos, 1):
             print(f"  {i:2}. " + "; ".join(describe_card(state, defs, c) for c in combo))
-        print("   0. Não trocar")
-        choice = ask_int("Qual troca deseja fazer? ", min_val=0, max_val=len(combos))
+        forced = tm.must_trade()
+        if forced:
+            print("Com 5 ou mais cartas a troca é obrigatória.")
+        else:
+            print("   0. Não trocar")
+        choice = ask_int("Qual troca deseja fazer? ", min_val=1 if forced else 0, max_val=len(combos))
         if not choice:
             break
         gained = tm.trade_cards_if_any(combos[choice - 1])
@@ -96,6 +102,11 @@ def prompt_attack(tm):
         print(f"Ataque perdeu {result['losses_attacker']}, defesa perdeu {result['losses_defender']}.")
         if result["conquered"]:
             print(f"{state.territories[to_territory].label} foi conquistado!")
+            if state.winner_id is None and tm.max_occupy() > 0:
+                extra = ask_int(f"Quantas tropas a mais mover para lá? (0 a {tm.max_occupy()}): ",
+                                min_val=0, max_val=tm.max_occupy())
+                if extra:
+                    tm.occupy(extra)
         if result["eliminated"] is not None:
             print(f"{player_label(state.players[result['eliminated']])} foi eliminado!")
         if state.winner_id is not None or not ask_yes_no("Quer atacar novamente?"):
@@ -127,11 +138,40 @@ def prompt_fortify(tm):
         qty = ask_int("Quantas tropas mover? ", min_val=1, max_val=tm.max_fortify(from_territory))
         tm.fortify(from_territory, to_territory, qty)
 
-def main():
-    state = initial_setup(3)
+def play_bot_turn(tm):
+    state = tm.state
+    p = state.current_player()
+    print(f"\n=== Turno de {player_label(p)}, jogado pelo computador ===")
+    for attack in bot.play_turn(tm):
+        if attack["conquered"]:
+            print(f"Conquistou {state.territories[attack['to']].label}.")
+        if attack["eliminated"] is not None:
+            print(f"{player_label(state.players[attack['eliminated']])} foi eliminado!")
+
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser(description="War no terminal.")
+    parser.add_argument("--jogadores", type=int, default=3, metavar="N",
+                        help=f"total de jogadores, de {MIN_PLAYERS} a {MAX_PLAYERS} (padrão: 3)")
+    parser.add_argument("--computador", type=int, default=0, metavar="N",
+                        help="quantos dos jogadores são controlados pelo computador (padrão: 0)")
+    args = parser.parse_args(argv)
+    if not MIN_PLAYERS <= args.jogadores <= MAX_PLAYERS:
+        parser.error(f"--jogadores deve estar entre {MIN_PLAYERS} e {MAX_PLAYERS}")
+    if not 0 <= args.computador < args.jogadores:
+        parser.error("--computador deve deixar pelo menos um jogador humano")
+    return args
+
+def main(argv=None):
+    args = parse_args(argv)
+    state = initial_setup(args.jogadores)
     tm = TurnManager(state, DATA_DIR)
+    # As pessoas ocupam os primeiros lugares; o computador joga os últimos
+    bots = set(range(args.jogadores - args.computador, args.jogadores))
     while state.winner_id is None:
         p = state.current_player()
+        if p.id in bots:
+            play_bot_turn(tm)
+            continue
         print(f"\n=== Turno de {player_label(p)} ===")
         print("Missão:", state.missions[p.id].description)
         reinf = tm.start_turn()
@@ -139,8 +179,11 @@ def main():
 
         prompt_trade(tm)
         prompt_placement(tm)
-        prompt_attack(tm)
-        prompt_fortify(tm)
+        if tm.in_setup_round():
+            print("Primeira rodada: só posicionamento. Os ataques começam na próxima.")
+        else:
+            prompt_attack(tm)
+            prompt_fortify(tm)
         if state.winner_id is None:
             tm.end_turn()
 

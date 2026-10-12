@@ -27,4 +27,6 @@ def new_game(data_dir: Path, num_players: int = 3) -> GameState:
     deck = [c["id"] for c in deck_defs]
     random.shuffle(deck)
     missions = dict(enumerate(random.sample(load_missions(data_dir), num_players)))
-    return GameState(territories=territories, players=players, deck=deck, missions=missions)
+    # A primeira rodada é só de posicionamento: um turno para cada jogador
+    return GameState(territories=territories, players=players, deck=deck, missions=missions,
+                     setup_turns_left=num_players)

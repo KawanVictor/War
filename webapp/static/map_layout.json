@@ -39,10 +39,10 @@
     "Middle East": [735, 335],
     "India": [840, 385],
     "Siam": [945, 400],
-    "Indonesia": [965, 490],
-    "New Guinea": [1090, 470],
-    "Western Australia": [1005, 590],
-    "Eastern Australia": [1115, 580]
+    "Indonesia": [955, 490],
+    "New Guinea": [1060, 455],
+    "Western Australia": [1040, 590],
+    "Eastern Australia": [1150, 525]
   },
   "continents": {
     "North America": [25, 45],
@@ -50,6 +50,6 @@
     "Europe": [590, 30],
     "Africa": [480, 520],
     "Asia": [860, 30],
-    "Australia": [880, 560]
+    "Australia": [860, 600]
   }
 }
